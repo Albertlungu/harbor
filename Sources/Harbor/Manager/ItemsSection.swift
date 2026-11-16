@@ -168,6 +168,11 @@ private struct ItemRow: View {
     private var icon: some View {
         if let kind = item.widget?.kind {
             Image(systemName: WidgetCatalog.symbol(for: kind))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(WidgetLibrary.tint(for: WidgetCatalog.category(for: kind)))
+                .frame(width: 24, height: 24)
+                .background(WidgetLibrary.tint(for: WidgetCatalog.category(for: kind)).opacity(0.13),
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         } else {
             Image(nsImage: IconProvider.icon(for: item, library: model.store.config.icons,
                                              iconsDirectory: model.file.iconsDirectory))

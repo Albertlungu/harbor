@@ -18,7 +18,7 @@ struct ItemOptionsSheet: View {
                 .padding(Tokens.Space.l)
                 Divider()
                 if item.kind == .widget {
-                    ScrollView { WidgetSettingsForm(item: item, dockID: dock.id).padding(Tokens.Space.l) }
+                    WidgetSettingsForm(item: item, dockID: dock.id)
                 } else {
                     ItemOptionsForm(item: item, dockID: dock.id)
                 }
