@@ -30,6 +30,22 @@ public struct ScreenGeometry: Equatable, Sendable {
     }
 }
 
+/// The strip of a screen that a pinned dock keeps free of other windows.
+public struct ReservedStrip: Equatable, Sendable {
+    public var rect: CGRect
+    public var edge: ScreenEdge
+    /// The area windows may use on that screen (everything below the menu bar).
+    public var bounds: CGRect
+    public var screenFrame: CGRect
+
+    public init(rect: CGRect, edge: ScreenEdge, bounds: CGRect, screenFrame: CGRect) {
+        self.rect = rect
+        self.edge = edge
+        self.bounds = bounds
+        self.screenFrame = screenFrame
+    }
+}
+
 /// Pure geometry for placing a dock's bar on a screen.
 public enum DockLayoutEngine {
     public static let snapThreshold: CGFloat = 12
@@ -116,6 +132,49 @@ public enum DockLayoutEngine {
         case .left: return CGRect(x: area.minX, y: bar.minY, width: d, height: bar.height)
         case .right: return CGRect(x: area.maxX - d, y: bar.minY, width: d, height: bar.height)
         }
+    }
+
+    // MARK: Reserved space
+
+    /// Bar thickness plus the gap from the edge; the whole edge for full-width docks, else just the bar's span.
+    public static func reservedStrip(bar: CGRect, edge: ScreenEdge, fullWidth: Bool, screen: ScreenGeometry) -> ReservedStrip {
+        let area = screen.pinnedArea
+        let rect: CGRect
+        switch edge {
+        case .bottom: rect = CGRect(x: fullWidth ? area.minX : bar.minX, y: area.minY,
+                                    width: fullWidth ? area.width : bar.width, height: bar.maxY - area.minY)
+        case .top: rect = CGRect(x: fullWidth ? area.minX : bar.minX, y: bar.minY,
+                                 width: fullWidth ? area.width : bar.width, height: area.maxY - bar.minY)
+        case .left: rect = CGRect(x: area.minX, y: fullWidth ? area.minY : bar.minY,
+                                  width: bar.maxX - area.minX, height: fullWidth ? area.height : bar.height)
+        case .right: rect = CGRect(x: bar.minX, y: fullWidth ? area.minY : bar.minY,
+                                   width: area.maxX - bar.minX, height: fullWidth ? area.height : bar.height)
+        }
+        return ReservedStrip(rect: rect, edge: edge, bounds: area, screenFrame: screen.frame)
+    }
+
+    /// Moves a window out of the strip, shrinking it only when it cannot fit otherwise.
+    /// Only the axis facing the strip changes. Windows too small to adjust are returned as they are.
+    public static func fit(window: CGRect, avoiding strip: ReservedStrip, minimumLength: CGFloat = 120) -> CGRect {
+        guard window.intersects(strip.rect) else { return window }
+        var allowed = strip.bounds
+        switch strip.edge {
+        case .bottom: allowed.origin.y = strip.rect.maxY; allowed.size.height = strip.bounds.maxY - strip.rect.maxY
+        case .top: allowed.size.height = strip.rect.minY - strip.bounds.minY
+        case .left: allowed.origin.x = strip.rect.maxX; allowed.size.width = strip.bounds.maxX - strip.rect.maxX
+        case .right: allowed.size.width = strip.rect.minX - strip.bounds.minX
+        }
+        var r = window
+        if strip.edge == .bottom || strip.edge == .top {
+            guard allowed.height >= minimumLength else { return window }
+            r.size.height = min(window.height, allowed.height)
+            r.origin.y = min(max(r.minY, allowed.minY), allowed.maxY - r.height)
+        } else {
+            guard allowed.width >= minimumLength else { return window }
+            r.size.width = min(window.width, allowed.width)
+            r.origin.x = min(max(r.minX, allowed.minX), allowed.maxX - r.width)
+        }
+        return r
     }
 
     // MARK: Notch

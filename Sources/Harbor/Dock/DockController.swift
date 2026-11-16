@@ -12,6 +12,7 @@ final class DockController {
     private var fullscreenTimer: Timer?
     private var reconcileScheduled = false
     let previews: WindowPreviewController
+    private let reserve = ReserveSpace()
 
     init(model: AppModel) {
         self.model = model
@@ -135,6 +136,13 @@ final class DockController {
             controller.close()
             windows[key] = nil
         }
+        updateReserve()
+    }
+
+    private func updateReserve() {
+        let settings = model.store.settings
+        let strips = windows.values.compactMap { $0.reservedStrip(settings: settings) }
+        reserve.update(strips: strips, reserveOnDrag: settings.reserveOnDrag)
     }
 
     func controllers(for dockID: UUID) -> [DockWindowController] {
@@ -170,6 +178,7 @@ final class DockController {
                 && fullscreenFrames.contains { $0.intersects(controller.screen.geometry.frame.insetBy(dx: 1, dy: 1)) }
             controller.setFullscreenHidden(hide)
         }
+        updateReserve()
     }
 }
 

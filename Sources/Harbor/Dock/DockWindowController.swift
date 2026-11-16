@@ -170,6 +170,15 @@ final class DockWindowController {
         }
     }
 
+    /// The edge strip this dock keeps other windows out of, if it reserves any.
+    func reservedStrip(settings: AppSettings) -> ReservedStrip? {
+        let position = ScreenResolver.position(for: dock, on: screen.id)
+        guard settings.reserveDockSpace, dock.behavior.reserveSpace, position.mode == .pinned, dock.layout == .dock,
+              !dock.behavior.autoHide, !dock.behavior.hideOnWindowHover, !fullscreenHidden, !barFrame.isEmpty else { return nil }
+        return DockLayoutEngine.reservedStrip(bar: barFrame, edge: position.edge, fullWidth: position.fullWidth,
+                                              screen: screen.geometry)
+    }
+
     private func applyWindowRules(position: Position, settings: AppSettings) {
         if position.desktopWidgetMode && dock.layout == .dock {
             panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
