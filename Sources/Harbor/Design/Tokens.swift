@@ -64,6 +64,9 @@ extension NSColor {
 }
 
 extension RGBA {
+    /// Relative luminance above the point where dark text reads better than light.
+    var isLight: Bool { 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.55 }
+
     var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha) }
 
     init(_ color: Color) {

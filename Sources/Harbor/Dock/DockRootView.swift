@@ -39,6 +39,7 @@ struct DockBarLayout: View {
     var body: some View {
         let frames = slotFrames()
         let bg = backgroundRect(frames)
+        let hoveredID = nearestSlot(frames)
         ZStack(alignment: .topLeading) {
             if dock.layout == .notch {
                 NotchBar(style: dock.style, edge: state.hugEdge, folded: state.notchFolded,
@@ -72,7 +73,7 @@ struct DockBarLayout: View {
 
             if !collapsed {
                 ForEach(frames, id: \.slot.id) { frame in
-                    slotView(frame)
+                    slotView(frame, hovered: frame.slot.id == hoveredID)
                 }
                 .opacity(notchFolded ? 0 : 1)
                 .allowsHitTesting(!notchFolded)
@@ -172,14 +173,13 @@ struct DockBarLayout: View {
     // MARK: Slot views
 
     @ViewBuilder
-    private func slotView(_ frame: SlotFrame) -> some View {
+    private func slotView(_ frame: SlotFrame, hovered: Bool) -> some View {
         let bar = state.barRect
         let crossLength = icon * frame.scale
         let alongLength = frame.length * frame.scale
         let width = horizontal ? alongLength : crossLength
         let height = horizontal ? crossLength : alongLength
         let origin = slotOrigin(frame: frame, bar: bar, width: width, height: height)
-        let hovered = isHovered(frame)
 
         DockSlotView(slot: frame.slot, dock: dock, size: CGSize(width: width, height: height),
                      iconSize: icon * frame.scale, hovered: hovered, editing: editing, state: state)
@@ -187,6 +187,8 @@ struct DockBarLayout: View {
             .overlay(alignment: labelAlignment) {
                 if shouldShowLabel(frame, hovered: hovered) {
                     LabelPill(text: label(for: frame.slot))
+                        // Labels swap instantly; fading would briefly show two at once while gliding.
+                        .transaction { $0.animation = nil }
                         .fixedSize()
                         .offset(labelOffset(height: height, width: width))
                         .allowsHitTesting(false)
@@ -207,6 +209,13 @@ struct DockBarLayout: View {
             let x = state.hugEdge == .right ? bar.maxX - inset - width : bar.minX + inset
             return CGPoint(x: x, y: y)
         }
+    }
+
+    /// The single slot under the pointer, so only one label shows at a time.
+    private func nearestSlot(_ frames: [SlotFrame]) -> String? {
+        guard let pointer = state.pointer else { return nil }
+        let hit = frames.filter { isHovered($0) }
+        return hit.min { abs($0.center - pointer) < abs($1.center - pointer) }?.slot.id
     }
 
     private func isHovered(_ frame: SlotFrame) -> Bool {

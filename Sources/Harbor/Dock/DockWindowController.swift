@@ -143,6 +143,7 @@ final class DockWindowController {
         state.notchPillRect = CGRect(x: pill.minX - frame.minX, y: frame.maxY - pill.maxY, width: pill.width, height: pill.height)
 
         applyWindowRules(position: position, settings: settings)
+        panel.appearance = Self.contentAppearance(for: dock)
         if isNotch {
             if editing { state.notchFolded = false }
             moveNotch(to: frame, position: position)
@@ -179,6 +180,25 @@ final class DockWindowController {
               !dock.behavior.autoHide, !dock.behavior.hideOnWindowHover, !fullscreenHidden, !barFrame.isEmpty else { return nil }
         return DockLayoutEngine.reservedStrip(bar: barFrame, edge: position.edge, fullWidth: position.fullWidth,
                                               screen: screen.geometry)
+    }
+
+    /// Light or dark content to match the dock's own background, so labels and widgets stay
+    /// legible on a light solid dock in dark mode and vice versa. Nil follows the system.
+    static func contentAppearance(for dock: Dock) -> NSAppearance? {
+        let style = dock.style
+        if dock.layout == .notch {
+            switch style.notch.background {
+            case .black: return NSAppearance(named: .darkAqua)
+            case .color: return NSAppearance(named: style.notch.color.isLight ? .aqua : .darkAqua)
+            case .blur, .glass: return nil
+            }
+        }
+        switch style.background {
+        case .solid: return NSAppearance(named: style.solidColor.isLight ? .aqua : .darkAqua)
+        case .blur where style.blurDarkness > 0.55: return NSAppearance(named: .darkAqua)
+        case .glass where style.darkGlass: return NSAppearance(named: .darkAqua)
+        default: return nil
+        }
     }
 
     private func applyWindowRules(position: Position, settings: AppSettings) {
@@ -239,7 +259,8 @@ final class DockWindowController {
 
     /// Called on every pointer move with the global pointer location.
     func pointerMoved(to point: CGPoint, now: Date = Date()) {
-        let barHit = activeRect.insetBy(dx: -2, dy: -2).contains(point)
+        // A hidden dock's resting rect is still on screen; ignoring it stops labels peeking out at the edge.
+        let barHit = !(autoHidden && !isNotch) && activeRect.insetBy(dx: -2, dy: -2).contains(point)
         let panelHit = panel.frame.contains(point)
         let inside = barHit || (state.hovering && panelHit && !autoHidden)
 
@@ -311,7 +332,14 @@ final class DockWindowController {
                 enterDate = nil
             }
         } else {
-            let near = panel.frame.contains(pointer) && (inside || barFrame.insetBy(dx: -8, dy: -8).contains(pointer))
+            // The strip between the bar and the screen edge counts as near, so a pointer parked
+            // at the edge doesn't hide the dock and then immediately reveal it again.
+            let pinned = dock.position.mode == .pinned || isNotch
+            let edgeStrip = pinned
+                ? DockLayoutEngine.revealZone(for: barFrame, edge: state.hugEdge, screen: screen.geometry,
+                                              distance: CGFloat(dock.position.gap) + 10)
+                : .null
+            let near = inside || barFrame.insetBy(dx: -8, dy: -8).contains(pointer) || edgeStrip.contains(pointer)
             if near || state.menuOpen {
                 leaveDate = nil
             } else {
