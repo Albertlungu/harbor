@@ -6,7 +6,7 @@ public enum GestureAction: String, Codable, CaseIterable, Sendable {
     case nothing, revealInFinder, toggleHidden, showOnlyThis, quit, minimizeFront
 }
 public enum ClickModifier: String, Codable, CodingKeyRepresentable, CaseIterable, Sendable { case command, option, optionCommand, shift, middle }
-public enum ScrollAction: String, Codable, CaseIterable, Sendable { case cycleWindows, showHide }
+public enum ScrollAction: String, Codable, CaseIterable, Sendable { case browsePreviews, cycleWindows, showHide }
 public enum PreviewSort: String, Codable, CaseIterable, Sendable { case recent, alphabetical, creation, screenPosition }
 
 public struct PreviewSettings: Codable, Hashable, Sendable {
@@ -92,8 +92,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
         .command: .revealInFinder, .option: .toggleHidden, .optionCommand: .showOnlyThis,
         .shift: .nothing, .middle: .quit,
     ]
-    public var scrollGestures = false
-    public var scrollAction: ScrollAction = .cycleWindows
+    public var scrollGestures = true
+    public var scrollAction: ScrollAction = .browsePreviews
     public var hideFromScreenSharing = false
 
     public var newDocks = NewDockDefaults()

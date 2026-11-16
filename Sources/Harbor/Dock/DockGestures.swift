@@ -120,6 +120,9 @@ final class GestureMonitor {
         scrollAccumulator = 0
         lastScrollAction = Date()
         switch settings.scrollAction {
+        case .browsePreviews:
+            // Scrolling down moves forward through the windows, like reading a list.
+            model.dockController.previews.browse(path: path, from: controller, step: up ? -1 : 1)
         case .cycleWindows:
             WindowControl.cycle(app.pid)
         case .showHide:

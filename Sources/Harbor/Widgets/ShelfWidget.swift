@@ -125,7 +125,7 @@ struct FileShelfWidget: View {
                 FileShelfPanel(item: item, dockID: dock.id, onClose: { open = false })
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("File Shelf")
+            .accessibilityLabel("Pinned Files")
             .accessibilityValue(count == 0 ? "Empty" : "\(count) files")
             .accessibilityAddTraits(.isButton)
     }
@@ -150,7 +150,7 @@ private struct FileShelfPanel: View {
 
     var body: some View {
         FilePanel(
-            labels: .init(title: "File Shelf", clearButton: "Clear Shelf", clearTitle: "Clear the file shelf?",
+            labels: .init(title: "Pinned Files", clearButton: "Clear All", clearTitle: "Remove all pinned files?",
                           clearMessage: "Only the shelf's list is cleared. The files stay where they are.",
                           removeItem: "Remove from Shelf", emptyTitle: "Nothing on the shelf",
                           emptyHint: "Drop files or folders here to keep them close without moving them.",
