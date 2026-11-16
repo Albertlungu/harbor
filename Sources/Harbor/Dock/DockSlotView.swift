@@ -24,7 +24,9 @@ struct DockSlotView: View {
             .scaleEffect(dropTargeted ? 1.08 : 1)
             .brightness(flash ? 0.45 : 0)
             .offset(bounceOffset)
-            .overlay(alignment: .topLeading) { removeBadge }
+            .modifier(Wiggle(active: editing && slot.item != nil))
+            // Narrow items (dividers, spacers) center their badge so it doesn't collide with a neighbor's.
+            .overlay(alignment: min(size.width, size.height) < 30 ? .top : .topLeading) { removeBadge }
             .contentShape(Rectangle())
             .onTapGesture { tap() }
             .contextMenu { ItemContextMenu(slot: slot, dock: dock, editing: editing) }
@@ -310,6 +312,26 @@ extension EnvironmentValues {
     var dockEdge: ScreenEdge {
         get { self[DockEdgeKey.self] }
         set { self[DockEdgeKey.self] = newValue }
+    }
+}
+
+/// A small, continuous rock in Edit Mode, offset per item so the dock doesn't move in lockstep.
+struct Wiggle: ViewModifier {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = false
+
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.degrees(active && !reduceMotion ? (phase ? 1.6 : -1.6) : 0))
+            .onAppear { if active { start() } }
+            .onChange(of: active) { _, on in if on { start() } else { phase = false } }
+    }
+
+    private func start() {
+        guard !reduceMotion else { return }
+        let delay = Double.random(in: 0...0.12)
+        withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true).delay(delay)) { phase = true }
     }
 }
 
