@@ -1,8 +1,6 @@
 // Placeholder until the storage widgets land. Delete when implementing.
 import HarborCore
 import SwiftUI
-struct FolderStackWidget: View { let item: DockItem; let widget: WidgetConfig; let dock: Dock; let size: CGSize; let state: DockViewState; var body: some View { Image(systemName: "hourglass").frame(width: size.width, height: size.height) } }
-struct AppStackWidget: View { let item: DockItem; let widget: WidgetConfig; let dock: Dock; let size: CGSize; let state: DockViewState; var body: some View { Image(systemName: "hourglass").frame(width: size.width, height: size.height) } }
 struct ShelfWidget: View { let item: DockItem; let widget: WidgetConfig; let dock: Dock; let size: CGSize; let state: DockViewState; var body: some View { Image(systemName: "hourglass").frame(width: size.width, height: size.height) } }
 struct FileShelfWidget: View { let item: DockItem; let widget: WidgetConfig; let dock: Dock; let size: CGSize; let state: DockViewState; var body: some View { Image(systemName: "hourglass").frame(width: size.width, height: size.height) } }
 struct TrashWidget: View { let item: DockItem; let widget: WidgetConfig; let dock: Dock; let size: CGSize; let state: DockViewState; var body: some View { Image(systemName: "hourglass").frame(width: size.width, height: size.height) } }
