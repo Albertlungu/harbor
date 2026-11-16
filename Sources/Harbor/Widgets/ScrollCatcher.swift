@@ -2,14 +2,14 @@ import AppKit
 import HarborCore
 import SwiftUI
 
-/// Reports scroll-wheel input over its own frame as whole tempo steps.
+/// Reports scroll-wheel input over its own frame as whole steps, for any widget with a scrollable value.
 ///
 /// A local event monitor is used instead of an overlay view that overrides `scrollWheel(with:)`:
 /// AppKit routes scroll events by hit testing, so an overlay would have to be hit-testable and would
-/// then swallow the clicks that toggle and tap the metronome. The monitor sees every scroll event
+/// then swallow the clicks meant for the widget. The monitor sees every scroll event
 /// in the app, so it never touches hit testing, and it only acts when the pointer is inside this view.
-struct MetronomeScrollCatcher: NSViewRepresentable {
-    /// Called with signed steps (positive raises the tempo) and whether Shift was held.
+struct ScrollCatcher: NSViewRepresentable {
+    /// Called with signed steps (positive raises the value) and whether Shift was held.
     let onSteps: @MainActor (Int, Bool) -> Void
 
     func makeNSView(context: Context) -> CatcherView {

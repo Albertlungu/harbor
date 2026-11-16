@@ -58,7 +58,7 @@ struct MetronomeWidget: View {
         .overlay { tapRing(unit: unit) }
         .overlay { bigNumber(unit: unit, radius: radius) }
         .background(
-            MetronomeScrollCatcher { steps, shift in scroll(steps: steps, shift: shift, engine: engine) }
+            ScrollCatcher { steps, shift in scroll(steps: steps, shift: shift, engine: engine) }
                 .allowsHitTesting(false)
         )
         .contentShape(Rectangle())

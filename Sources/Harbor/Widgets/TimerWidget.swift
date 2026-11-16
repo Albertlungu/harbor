@@ -14,6 +14,10 @@ struct TimerWidget: View {
     private var total: TimeInterval { widget.stateDouble("total") ?? Double(ToolActions.timerMinutes(widget) * 60) }
     private var fields: WidgetFields { WidgetFields(model: model, itemID: item.id, dockID: dock.id) }
 
+    @State private var overlayMinutes = 0
+    @State private var overlayVisible = false
+    @State private var overlayTask: Task<Void, Never>?
+
     var body: some View {
         let unit = Tokens.Tool.unit(size)
         // Paused while idle so a stopped timer costs no redraws.
@@ -53,12 +57,55 @@ struct TimerWidget: View {
             .accessibilityHint(end == nil ? "Starts the timer" : "Stops and resets the timer")
             .accessibilityAddTraits(.isButton)
         }
+        .overlay { bigDuration(unit: unit) }
+        .background(
+            ScrollCatcher { steps, shift in scroll(steps: steps, shift: shift) }
+                .allowsHitTesting(false)
+        )
         .contentShape(Rectangle())
         .onTapGesture {
             if end == nil { ToolActions.startTimer(fields) } else { ToolActions.stopTimer(fields) }
         }
         // Keyed on the end date so a restart or a stop cancels any pending chime.
         .task(id: end) { await chimeWhenDone() }
+    }
+
+    private func bigDuration(unit: CGFloat) -> some View {
+        Text("\(overlayMinutes)m")
+            .font(.system(size: unit * 0.4, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+            .foregroundStyle(Tokens.text)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Circle().fill(Tokens.surface).padding(unit * 0.04))
+            .opacity(overlayVisible ? 1 : 0)
+            .animation(.easeInOut(duration: 0.25), value: overlayVisible)
+            .allowsHitTesting(false)
+    }
+
+    private func scroll(steps: Int, shift: Bool) {
+        let current = fields.current
+        let before = ToolActions.timerMinutes(current)
+        let next = TimerScroll.adjusted(minutes: before, steps: steps, shift: shift)
+        if next != before {
+            fields.set("minutes", .number(Double(next)))
+            // A finished timer has nothing left to shift; only the setting changes.
+            if let end = current.stateDouble("endDate").map({ Date(timeIntervalSince1970: $0) }),
+               TimerLogic.remaining(end: end, now: Date()) > 0 {
+                let total = current.stateDouble("total") ?? Double(before * 60)
+                let moved = TimerScroll.shifted(end: end, total: total, now: Date(), byMinutes: next - before)
+                fields.setStates(["endDate": .number(moved.end.timeIntervalSince1970), "total": .number(moved.total)])
+            }
+        }
+        overlayMinutes = next
+        overlayVisible = true
+        overlayTask?.cancel()
+        overlayTask = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            overlayVisible = false
+        }
     }
 
     private func chimeWhenDone() async {
