@@ -60,6 +60,17 @@ final class MetronomeEngine {
 
     func toggle() { isRunning ? stop() : start() }
 
+    /// Begins beat one now. Used by tap tempo so the next click lands exactly where the last tap did;
+    /// the audio engine stays up so there is no start-up delay between the tap and the click.
+    func restart() {
+        if isRunning {
+            generation += 1
+            player.stop()
+            isRunning = false
+        }
+        start()
+    }
+
     private func scheduleNext() {
         let index = nextScheduled % beats
         nextScheduled += 1
