@@ -21,6 +21,7 @@ struct WidgetLibrary: View {
         } detail: {
             VStack(spacing: 0) {
                 HStack {
+                    Text(Copy.libraryTitle(model.playful)).font(.headline)
                     TextField("Search widgets", text: $query)
                         .textFieldStyle(.roundedBorder)
                         .focused($searchFocused)
@@ -29,7 +30,7 @@ struct WidgetLibrary: View {
                 }
                 .padding(Tokens.Space.m)
                 if kinds.isEmpty {
-                    ContentUnavailableView.search(text: query)
+                    NoResultsView(query: query)
                 } else {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Tokens.Space.m)], spacing: Tokens.Space.m) {

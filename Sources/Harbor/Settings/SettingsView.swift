@@ -350,7 +350,7 @@ private struct IconLibrarySettings: View {
             }
         }
         .searchable(text: $query)
-        .confirmationDialog("Delete this icon?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+        .confirmationDialog(Copy.deleteIcon(model.playful), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             presenting: deleting) { asset in
             Button("Remove and Delete", role: .destructive) { IconLibrary.delete(asset.id, model: model) }
         } message: { asset in

@@ -81,8 +81,8 @@ private struct ShelfPanel: View {
         FilePanel(
             labels: .init(title: "Shelf", clearButton: "Clear All", clearTitle: "Clear the shelf?",
                           clearMessage: "Every copy on the shelf is deleted. Your originals are not touched.",
-                          removeItem: "Remove from Shelf", emptyTitle: "Nothing on the shelf",
-                          emptyHint: "Drop files on the shelf icon or here to keep a copy.", emptySymbol: "tray"),
+                          removeItem: "Remove from Shelf", emptyTitle: Copy.emptyShelf(model.playful).title,
+                          emptyHint: Copy.emptyShelf(model.playful).detail, emptySymbol: "tray"),
             entries: model.store.config.shelf.map { FilePanelEntry(id: $0.id.uuidString, url: URL(fileURLWithPath: $0.path)) },
             searchable: false,
             showsCopy: false,
@@ -152,8 +152,8 @@ private struct FileShelfPanel: View {
         FilePanel(
             labels: .init(title: "Pinned Files", clearButton: "Clear All", clearTitle: "Remove all pinned files?",
                           clearMessage: "Only the shelf's list is cleared. The files stay where they are.",
-                          removeItem: "Remove from Shelf", emptyTitle: "Nothing on the shelf",
-                          emptyHint: "Drop files or folders here to keep them close without moving them.",
+                          removeItem: "Remove from Shelf", emptyTitle: Copy.pinnedFiles(model.playful).title,
+                          emptyHint: Copy.pinnedFiles(model.playful).detail,
                           emptySymbol: "tray.2"),
             entries: fields.current.strings("refs").map { FilePanelEntry(id: $0, url: URL(fileURLWithPath: $0)) },
             searchable: true,

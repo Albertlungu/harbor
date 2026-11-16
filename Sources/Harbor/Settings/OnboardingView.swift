@@ -9,7 +9,7 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.xl) {
-            Label("Welcome to Harbor", systemImage: "dock.rectangle").font(.title2.weight(.semibold))
+            Label(Copy.welcomeTitle(model.playful), systemImage: "dock.rectangle").font(.title2.weight(.semibold))
             Text("Make as many docks as you like, put each on any edge of any screen, and fill them with apps, folders and widgets.")
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -33,15 +33,18 @@ struct OnboardingView: View {
             Text("How do you want to start?").font(.headline)
             HStack(spacing: Tokens.Space.l) {
                 if model.nativeDock.isReadable {
-                    choice("Replace my Dock", detail: "Same apps and folders; the macOS Dock hides", symbol: "dock.rectangle") {
+                    let replace = Copy.replaceDock(model.playful)
+                    choice(replace.title, detail: replace.detail, symbol: "dock.rectangle") {
                         model.setReplaceNativeDock(true)
                         finish(selecting: model.selectedDockID)
                     }
                 }
-                choice("Empty dock", detail: "Start from scratch", symbol: "plus.rectangle") {
+                let fresh = Copy.emptyChoice(model.playful)
+                choice(fresh.title, detail: fresh.detail, symbol: "plus.rectangle") {
                     finish(selecting: model.store.createDock().id)
                 }
-                choice("Not now", detail: "Open the Manager", symbol: "sidebar.left") {
+                let later = Copy.notNow(model.playful)
+                choice(later.title, detail: later.detail, symbol: "sidebar.left") {
                     finish(selecting: nil)
                 }
             }

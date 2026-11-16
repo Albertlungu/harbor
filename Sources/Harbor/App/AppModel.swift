@@ -142,5 +142,8 @@ final class AppModel {
         }
     }
 
+    /// Whether copy should use its playful variant.
+    var playful: Bool { store.settings.playfulCopy }
+
     var launchAtLoginNeedsApproval: Bool { SMAppService.mainApp.status == .requiresApproval }
 }

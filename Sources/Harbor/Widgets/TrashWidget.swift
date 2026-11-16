@@ -109,6 +109,7 @@ struct TrashWidget: View {
 }
 
 private struct TrashPanel: View {
+    @Environment(AppModel.self) private var model
     let onClose: () -> Void
     let onChange: () -> Void
 
@@ -162,7 +163,7 @@ private struct TrashPanel: View {
                 }
                 .frame(minHeight: 180)
             } else if loaded && items.isEmpty {
-                ContentUnavailableView("The Trash is empty", systemImage: "trash")
+                ContentUnavailableView(Copy.emptyTrash(model.playful), systemImage: "trash")
                     .frame(height: 160)
             } else {
                 TextField("Search Trash", text: $query).textFieldStyle(.roundedBorder)
