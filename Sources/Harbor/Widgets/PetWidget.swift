@@ -687,7 +687,19 @@ struct PetWidget: View {
     private func idleLoop() async {
         guard visible, !reduceMotion else { return }
         while !Task.isCancelled {
-            let wait = PetLogic.idleDelay(hour: hour, roll: .random(in: 0..<1))
+            // Energy from Settings › Personality: mellow pets do tricks half as often, lively ones
+            // nearly twice as often, and quiet ones only react to you.
+            let settings = model.store.settings
+            if settings.petQuiet {
+                try? await Task.sleep(for: .seconds(30))
+                continue
+            }
+            let pace: Double = switch settings.petEnergy {
+            case .mellow: 2.0
+            case .normal: 1.0
+            case .lively: 0.55
+            }
+            let wait = PetLogic.idleDelay(hour: hour, roll: .random(in: 0..<1)) * pace
             try? await Task.sleep(for: .seconds(wait))
             guard !Task.isCancelled, expression != .asleep, !hovering, actProgress(at: .now) == nil,
                   roam?.moving != true, roam?.falling != true else { continue }

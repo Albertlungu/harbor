@@ -75,6 +75,8 @@ final class AppModel {
         applyPresentation()
         dockController.start()
         HotkeyCenter.shared.start(model: self)
+        // Roaming pets come back at launch even if no dock showing a pet has drawn yet.
+        RoamCoordinator.shared.start(model: self)
         AssistantBridge.shared.start(model: self)
         if store.settings.deepHideNativeDock {
             _ = nativeDock.deepHide()

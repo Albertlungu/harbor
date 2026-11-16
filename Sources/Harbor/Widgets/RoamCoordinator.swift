@@ -83,8 +83,8 @@ final class RoamCoordinator {
     private var carrying: PetKey?
     private var lastGazeTick = Date.distantPast
 
-    /// TODO(petQuiet): return `model.store.settings.petQuiet` once AppSettings gains that key.
-    private var quiet: Bool { false }
+    /// Quiet mode (Settings › Personality) keeps a roaming pet hanging out in one place.
+    private var quiet: Bool { model?.store.settings.petQuiet ?? false }
 
     // MARK: Lifecycle
 
@@ -185,8 +185,11 @@ final class RoamCoordinator {
         if let home = widget.roamHome { pet.home = home }
         let unit = CGFloat(widget.roamSize)
         if pet.driver.unit != unit { pet.driver.unit = unit }
-        pet.driver.lively = widget.bool("needs", false)
-            && PetStore.current(widget, now: .now).happiness >= PetLogic.happyAtLeast
+        // Energy from Settings › Personality sets the pace; a happy pet with needs on also perks up.
+        let energy = model?.store.settings.petEnergy ?? .normal
+        pet.driver.lively = energy == .lively
+            || (energy == .normal && widget.bool("needs", false)
+                && PetStore.current(widget, now: .now).happiness >= PetLogic.happyAtLeast)
         if widget.staysOnOwnScreen, let model, carrying != pet.key {
             let own = model.dockController.controllers(for: dock.id).map(\.screen.id)
             if !own.isEmpty, !own.contains(pet.screen.id) { respawn(pet, dock: dock) }
