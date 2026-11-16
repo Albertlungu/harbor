@@ -52,13 +52,25 @@ public struct ConfigFile: Sendable {
     public var shelfDirectory: URL { directory.appendingPathComponent("Shelf", isDirectory: true) }
 
     public static func decode(_ data: Data) throws -> Config {
-        guard let config = try? JSONDecoder.harbor.decode(Config.self, from: data) else {
+        guard var config = try? JSONDecoder.harbor.decode(Config.self, from: data) else {
             throw ConfigError.unreadable
         }
         if config.schemaVersion > Config.currentSchemaVersion {
             throw ConfigError.newerVersion(config.schemaVersion)
         }
+        migrate(&config)
         return config
+    }
+
+    /// Brings configs written by older builds up to date.
+    static func migrate(_ config: inout Config) {
+        if config.schemaVersion < 2 {
+            // Version 2 added scrolling through window previews. Older configs only ever stored
+            // the previous default, so they move to the new one rather than keep a stale choice.
+            config.settings.scrollGestures = true
+            config.settings.scrollAction = .browsePreviews
+        }
+        config.schemaVersion = Config.currentSchemaVersion
     }
 
     public static func encode(_ config: Config) throws -> Data {

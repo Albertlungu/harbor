@@ -119,7 +119,10 @@ final class GestureMonitor {
         let up = scrollAccumulator > 0
         scrollAccumulator = 0
         lastScrollAction = Date()
-        switch settings.scrollAction {
+        // Bringing windows forward needs Accessibility; without it, show the previews instead
+        // of silently doing nothing.
+        let action = settings.scrollAction == .cycleWindows && !WindowControl.isTrusted ? .browsePreviews : settings.scrollAction
+        switch action {
         case .browsePreviews:
             // Scrolling down moves forward through the windows, like reading a list.
             model.dockController.previews.browse(path: path, from: controller, step: up ? -1 : 1)

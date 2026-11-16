@@ -181,7 +181,7 @@ public struct ShelfEntry: Codable, Hashable, Identifiable, Sendable {
 
 /// The whole persisted configuration.
 public struct Config: Codable, Hashable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion = Config.currentSchemaVersion
     public var docks: [Dock] = []
