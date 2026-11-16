@@ -5,15 +5,22 @@ one its own look and behavior, and fill it with apps, folders and widgets.
 
 Harbor is a working name; the final brand comes later.
 
-## Status
+## Features
 
-Early development. Working today: multiple docks pinned to any edge or floating, per-screen
-assignment, auto-hide, magnification, glass/blur/solid backgrounds, effects, themes, collapse,
-Edit Mode, folder browsing, Live Dock and Running Apps, clock/label/spacer/divider widgets,
-global shortcuts, the Manager, Settings, backups and onboarding.
+- As many docks as you like: pinned to any edge (12 positions), floating anywhere, or a notch that folds into a pill.
+- Per-screen placement that survives unplugging and sleep; mirror a dock on every screen.
+- Glass, blur, solid or no background; borders, corner styles, tinted icons, snow/rays/fireworks, magnification, themes.
+- Auto-hide, fullscreen hiding, fade under windows, keep windows off docks, a hotkey per dock.
+- 24 widgets: clock, link, Finder, IP address, spacer, divider, label, folder and app stacks, two shelves, Trash,
+  Live Dock, running apps, desktop apps and indicator, CPU, memory, GPU, battery, Bluetooth battery, counter,
+  timer, metronome and a small seal pup.
+- Window previews, notification badges, click and scroll gestures, Edit Mode on the dock itself.
+- Backups with daily snapshots, settings export, icon library.
+- Automation: `harbor://toggle?dock=Work` style URLs for Shortcuts, and `harbor-mcp` so AI assistants can
+  change docks after you approve.
 
-Not done yet: most other widgets, window previews, the notch layout's shape, badges and
-keeping windows off docks. See `replica/build-log.md` and `replica/features.csv`.
+Clean-room rebuild of the features of a commercial multi-dock app, written from its public documentation.
+See `replica/` for the research, plan and build log.
 
 ## Building
 

@@ -37,20 +37,20 @@ Always show item names,style,should,yes,yes,
 Effects snow rays fireworks,style,could,yes,yes,
 Themes save apply import export,style,could,yes,yes,
 Collapse bar with button style and expand mode,style,should,yes,yes,
-Notch layout with show pill hidden idle modes,style,could,yes,partial,settings UI only; notch shape and idle folding not drawn yet
+Notch layout with show pill hidden idle modes,style,could,yes,yes,
 Show on all screens,screens,must,yes,yes,
 Assign dock to specific screens,screens,must,yes,yes,
 Stable screen identity across reconnects,screens,must,yes,yes,
 Known screens rename forget,screens,should,yes,yes,
 Per-screen positions,screens,could,yes,yes,
-Identical monitor disambiguation and merge,screens,could,yes,partial,identity uses serial plus slot; no Choose Display or Merge UI yet
+Identical monitor disambiguation and merge,screens,could,yes,partial,identity uses hardware serial plus slot; no Choose Display or Merge UI
 Auto-hide with edge reveal and delays,behavior,must,yes,yes,
 Hide when fullscreen app is active,behavior,must,yes,yes,
 Show on all spaces active space pinned space,behavior,should,yes,yes,
-Hide on window hover,behavior,could,yes,partial,setting stored; behavior not implemented
-Show at screen edge while hidden,behavior,could,yes,partial,setting stored; reveal not wired for fullscreen-hidden docks
-Reserve dock space (keep windows off docks),behavior,should,yes,partial,setting stored; window adjustment not implemented
-Notification badges,behavior,could,yes,partial,setting stored; badge reading not implemented
+Hide on window hover,behavior,could,yes,yes,
+Show at screen edge while hidden,behavior,could,yes,yes,
+Reserve dock space (keep windows off docks),behavior,should,yes,yes,
+Notification badges,behavior,could,yes,yes,
 Per-dock global keyboard shortcut toggle,behavior,should,yes,yes,
 Menu bar status item with per-dock submenus,menubar,must,yes,yes,
 Settings window General,settings,must,yes,yes,
@@ -60,7 +60,7 @@ Deep-hide native macOS Dock,settings,should,yes,yes,
 Always use opaque backgrounds,settings,could,yes,yes,
 App-wide folder click behavior and open-with app,settings,should,yes,yes,
 Excluded apps and indicator color and attention style,settings,could,yes,yes,
-Click and scroll gestures,settings,could,yes,partial,settings UI only; gestures not wired on the dock yet
+Click and scroll gestures,settings,could,yes,yes,
 Hide docks from screen sharing,settings,could,yes,yes,
 New dock defaults,settings,should,yes,yes,
 Icon library and custom icons,settings,should,yes,yes,
@@ -73,38 +73,38 @@ Widgets library with search and categories,widgets,must,yes,yes,
 Clock widget,widgets,must,yes,yes,
 Spacer and divider widgets,widgets,must,yes,yes,
 Label widget,widgets,should,yes,yes,
-Link widget,widgets,should,yes,no,
-Finder widget,widgets,should,yes,no,
-IP address widget,widgets,should,yes,no,
+Link widget,widgets,should,yes,yes,
+Finder widget,widgets,should,yes,yes,
+IP address widget,widgets,should,yes,yes,
 Folder browser popover grid list fan,widgets,should,yes,yes,
-Folder Stack widget,widgets,should,yes,no,
-App Stack widget,widgets,should,yes,no,
-Shelf widget (copies),widgets,should,yes,no,
-File Shelf widget (references),widgets,could,yes,no,
-Trash widget with trash window,widgets,should,yes,no,
+Folder Stack widget,widgets,should,yes,yes,
+App Stack widget,widgets,should,yes,yes,
+Shelf widget (copies),widgets,should,yes,yes,
+File Shelf widget (references),widgets,could,yes,yes,
+Trash widget with trash window,widgets,should,yes,yes,
 Running Apps widget,widgets,must,yes,yes,
 Live Dock widget mirroring native Dock,widgets,should,yes,yes,
-Space Awareness widget,widgets,could,yes,partial,current-Space apps mode works; indicator mode pending
-CPU Memory GPU Battery widgets,widgets,should,yes,no,
-Bluetooth Battery widget,widgets,could,yes,no,
-Clicker widget,widgets,could,yes,no,
-Timer widget,widgets,could,yes,no,
-Metronome widget,widgets,could,yes,no,
-Dock pet widget,widgets,could,yes,no,original art and character required
-Window previews on hover,previews,should,yes,no,
-Window previews compact list fallback,previews,could,yes,no,
+Space Awareness widget,widgets,could,yes,yes,
+CPU Memory GPU Battery widgets,widgets,should,yes,yes,
+Bluetooth Battery widget,widgets,could,yes,yes,
+Clicker widget,widgets,could,yes,yes,
+Timer widget,widgets,could,yes,yes,
+Metronome widget,widgets,could,yes,yes,
+Dock pet widget,widgets,could,yes,yes,original art and character required
+Window previews on hover,previews,should,yes,yes,
+Window previews compact list fallback,previews,could,yes,yes,
 Quick Look in folder browser,widgets,could,yes,yes,
 Chromium New Window with Profile,dock,could,yes,yes,
-App Intents show hide toggle list docks,integrations,could,yes,no,
-Focus filter docks to show and hide,integrations,could,yes,no,
-Local MCP server for AI assistants,integrations,could,yes,no,
+App Intents show hide toggle list docks,integrations,could,yes,partial,Command Line Tools can't build App Intents metadata; harbor:// URL commands work from Shortcuts instead
+Focus filter docks to show and hide,integrations,could,yes,partial,no Focus filter API without App Intents; use a Focus automation running a harbor:// URL
+Local MCP server for AI assistants,integrations,could,yes,yes,
 Reduce Motion support,accessibility,should,yes,yes,
 Light and dark mode,accessibility,must,yes,yes,
-VoiceOver labels on dock items,accessibility,should,yes,partial,labels and button trait set; not audited with VoiceOver
+VoiceOver labels on dock items,accessibility,should,yes,partial,labels and traits set; not audited with VoiceOver
 Window list submenu for running app,dock,should,yes,yes,
-Locked widget explanation,widgets,could,yes,no,
+Locked widget explanation,widgets,could,yes,yes,
 Dock hidden-by-source banner,manager,could,yes,yes,
-Check for updates,settings,could,yes,no,GitHub releases instead of their channel
+Check for updates,settings,could,yes,partial,links to GitHub releases; no in-app updater
 License activation and device limits,account,skip,yes,skip,their commercial licensing; Harbor is open source
 Talk integrations with DockFlow and ExtraBar,integrations,skip,yes,skip,proprietary sister apps and IPC
 Import from ExtraDock 4,backup,skip,yes,skip,another product's private data format
