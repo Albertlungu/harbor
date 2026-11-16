@@ -6,6 +6,7 @@ public enum GestureAction: String, Codable, CaseIterable, Sendable {
     case nothing, revealInFinder, toggleHidden, showOnlyThis, quit, minimizeFront
 }
 public enum ClickModifier: String, Codable, CodingKeyRepresentable, CaseIterable, Sendable { case command, option, optionCommand, shift, middle }
+public enum OpenEffect: String, Codable, CaseIterable, Sendable { case plop, pop, bounce, ripple, wobble, glow }
 public enum PreviewSort: String, Codable, CaseIterable, Sendable { case recent, alphabetical, creation, screenPosition }
 
 public struct PreviewSettings: Codable, Hashable, Sendable {
@@ -93,6 +94,12 @@ public struct AppSettings: Codable, Hashable, Sendable {
     ]
     public var hideFromScreenSharing = false
 
+    // Feel
+    public var openAnimation = true
+    public var openEffect: OpenEffect = .plop
+    public var openSound = false
+    public var openSoundVolume = 0.5
+
     public var newDocks = NewDockDefaults()
     public var previews = PreviewSettings()
 
@@ -121,6 +128,10 @@ public struct AppSettings: Codable, Hashable, Sendable {
         clickGestures = c(.clickGestures, d.clickGestures)
         clickGestureActions = c(.clickGestureActions, d.clickGestureActions)
         hideFromScreenSharing = c(.hideFromScreenSharing, d.hideFromScreenSharing)
+        openAnimation = c(.openAnimation, d.openAnimation)
+        openEffect = c(.openEffect, d.openEffect)
+        openSound = c(.openSound, d.openSound)
+        openSoundVolume = c(.openSoundVolume, d.openSoundVolume)
         newDocks = c(.newDocks, d.newDocks)
         previews = c(.previews, d.previews)
     }
