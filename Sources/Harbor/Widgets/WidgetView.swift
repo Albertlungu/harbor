@@ -68,6 +68,8 @@ enum WidgetDrop {
         switch item.widget?.kind {
         case .folderStack?, .appStack?, .shelf?, .fileShelf?, .trash?:
             return StorageWidgetDrop.handle(providers, item: item, dock: dock, model: model)
+        case .pet?:
+            return PetDrop.handle(providers, item: item, dock: dock, model: model)
         default:
             return false
         }
