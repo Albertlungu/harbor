@@ -21,7 +21,7 @@ struct PositionSection: View {
             if dock.position.mode == .pinned || notch {
                 Section(notch ? "Notch position" : "Screen position") {
                     SpotPicker(edge: dock.position.edge, alignment: dock.position.alignment,
-                               taken: notch ? takenNotchSpots : [],
+                               taken: takenSpots,
                                disabledEdges: notch && !model.store.settings.deepHideNativeDock ? [.bottom] : []) { edge, alignment in
                         model.store.updateDock(dock.id) {
                             $0.position.edge = edge
@@ -99,9 +99,12 @@ struct PositionSection: View {
         })
     }
 
-    private var takenNotchSpots: [SpotPicker.Spot] {
+    /// Spots other enabled pinned docks of the same layout already use, so two docks
+    /// don't end up stacked on the same spot without the picker saying so.
+    private var takenSpots: [SpotPicker.Spot] {
         model.store.docks
-            .filter { $0.id != dock.id && $0.layout == .notch && $0.enabled }
+            .filter { $0.id != dock.id && $0.enabled && $0.layout == dock.layout
+                && ($0.position.mode == .pinned || $0.layout == .notch) }
             .map { SpotPicker.Spot(edge: $0.position.edge, alignment: $0.position.alignment) }
     }
 }
@@ -156,7 +159,7 @@ struct SpotPicker: View {
         .position(point(e, a, rect))
         .accessibilityLabel("\(e.rawValue.capitalized), \(label(a, horizontal: horizontal))")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .help(isTaken ? "Used by another notch dock" : "\(e.rawValue.capitalized), \(label(a, horizontal: horizontal))")
+        .help(isTaken ? "Used by another dock" : "\(e.rawValue.capitalized), \(label(a, horizontal: horizontal))")
     }
 
     private func label(_ a: EdgeAlignment, horizontal: Bool) -> String {
