@@ -46,6 +46,9 @@ enum Tokens {
     enum Motion {
         static let reveal = 0.18
         static let base = 0.22
+        /// Shared by the open effects and the entrances of popovers and panels so they feel like one gesture.
+        static let popSpring = Spring(duration: 0.32, bounce: 0.28)
+        static let popAnimation = Animation.spring(popSpring)
     }
 
     enum Dock {
