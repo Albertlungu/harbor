@@ -106,6 +106,10 @@ final class WindowPreviewController {
         apply(windows: windows, settings: settings, access: access)
 
         controller.state.menuOpen = true
+        if !panel.isVisible {
+            content.animate = model.store.settings.openAnimation
+            content.appearCount += 1
+        }
         panel.orderFrontRegardless()
 
         guard access, !content.layout.compact else { return }

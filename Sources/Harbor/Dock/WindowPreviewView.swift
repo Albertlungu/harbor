@@ -15,6 +15,9 @@ final class WindowPreviewModel {
     var layout = PreviewLayout.empty
     var hasScreenAccess = false
     var canClose = false
+    var animate = true
+    /// Bumped each time the panel comes on screen, to replay its entrance.
+    var appearCount = 0
 
     @ObservationIgnored var onRaise: (PreviewWindow) -> Void = { _ in }
     @ObservationIgnored var onClose: (PreviewWindow) -> Void = { _ in }
@@ -86,6 +89,7 @@ struct WindowPreviewView: View {
         .frame(width: layout.size.width, height: layout.size.height)
         .background { backdrop }
         .onHover { model.onHover($0) }
+        .modifier(PopEntrance(from: 0.94, trigger: model.appearCount, enabled: model.animate))
     }
 
     @ViewBuilder

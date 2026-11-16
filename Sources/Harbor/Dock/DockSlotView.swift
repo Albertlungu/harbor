@@ -18,9 +18,12 @@ struct DockSlotView: View {
     @State private var bounce = false
     @State private var flash = false
     @State private var showFolder = false
+    @State private var openTrigger = 0
+    @Environment(\.dockEdge) private var dockEdge
 
     var body: some View {
         content
+            .modifier(OpenEffectModifier(trigger: openTrigger, effect: model.store.settings.openEffect, edge: dockEdge))
             .scaleEffect(dropTargeted ? 1.08 : 1)
             .brightness(flash ? 0.45 : 0)
             .offset(bounceOffset)
@@ -36,6 +39,7 @@ struct DockSlotView: View {
                 if let item = slot.item, let url = item.url {
                     FolderBrowser(folder: url, options: item.folder, onClose: { showFolder = false })
                         .environment(model)
+                        .popEntrance(enabled: model.store.settings.openAnimation)
                 }
             }
             .onChange(of: showFolder) { _, open in state.menuOpen = open }
@@ -160,6 +164,8 @@ struct DockSlotView: View {
     }
 
     private func open(_ item: DockItem) {
+        // One effect per click; a folder's popover opening from this same click does not add another.
+        OpenFeedback.fire(&openTrigger, settings: model.store.settings)
         if item.kind == .app, let path = item.path, !model.running.isRunning(path: path) {
             signalLaunch()
         }

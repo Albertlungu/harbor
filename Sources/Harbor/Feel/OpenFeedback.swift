@@ -12,6 +12,12 @@ enum OpenFeedback {
     private static var buffers: [OpenEffect: AVAudioPCMBuffer] = [:]
     private static var idleTask: Task<Void, Never>?
 
+    /// Runs the configured open feedback: bumps `trigger` for the animation and plays the sound.
+    static func fire(_ trigger: inout Int, settings: AppSettings) {
+        if settings.openAnimation { trigger += 1 }
+        if settings.openSound { play(effect: settings.openEffect, volume: settings.openSoundVolume) }
+    }
+
     static func play(effect: OpenEffect, volume: Double) {
         let level = OpenEffectSound.volume(volume)
         guard level > 0, let buffer = buffer(for: effect), startEngine() else { return }

@@ -67,6 +67,8 @@ private struct StoragePopover<Popup: View>: ViewModifier {
     @Binding var isPresented: Bool
     let state: DockViewState
     let popup: () -> Popup
+    @Environment(\.dockEdge) private var dockEdge
+    @State private var openTrigger = 0
 
     private var edge: Edge {
         switch state.hugEdge {
@@ -79,12 +81,19 @@ private struct StoragePopover<Popup: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .modifier(OpenEffectModifier(trigger: openTrigger, effect: model.store.settings.openEffect, edge: dockEdge))
             .popover(isPresented: $isPresented, arrowEdge: edge) {
                 popup()
                     .frame(width: Tokens.Storage.popoverWidth)
                     .environment(model)
+                    .popEntrance(enabled: model.store.settings.openAnimation)
             }
-            .onChange(of: isPresented) { _, open in state.menuOpen = open }
+            .onChange(of: isPresented) { _, open in
+                state.menuOpen = open
+                if open, !model.store.editing.contains(state.dockID) {
+                    OpenFeedback.fire(&openTrigger, settings: model.store.settings)
+                }
+            }
     }
 }
 
