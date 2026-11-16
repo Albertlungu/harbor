@@ -5,7 +5,8 @@ import Testing
 @Suite struct ToolLogicTests {
     @Test func clamps() {
         #expect(ToolLogic.clamp(5, 1...3) == 3)
-        #expect(ToolLogic.clamp(-1.0, 0...1) == 0)
+        let low: Double = ToolLogic.clamp(-1.0, 0.0...1.0)
+        #expect(low == 0)
         #expect(ClickerLogic.step(500) == 100)
         #expect(ClickerLogic.step(0) == 1)
         #expect(TimerLogic.minutes(999) == 180)
