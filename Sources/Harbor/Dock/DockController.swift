@@ -13,6 +13,7 @@ final class DockController {
     private var reconcileScheduled = false
     let previews: WindowPreviewController
     private let reserve = ReserveSpace()
+    let badges = Badges()
 
     init(model: AppModel) {
         self.model = model
@@ -137,6 +138,7 @@ final class DockController {
             windows[key] = nil
         }
         updateReserve()
+        badges.setNeeded(store.docks.contains { $0.behavior.showBadges && store.isVisible($0.id) })
     }
 
     private func updateReserve() {

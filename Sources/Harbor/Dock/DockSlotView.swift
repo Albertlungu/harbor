@@ -222,7 +222,37 @@ struct AppIcon: View {
                         .offset(y: Tokens.Dock.indicatorSize + 2)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if dock.behavior.showBadges, let text = badgeText(running) {
+                    BadgePill(text: text, iconSize: iconSize).offset(x: iconSize * 0.12, y: -iconSize * 0.12)
+                }
+            }
             .opacity(running?.isHidden == true ? 0.6 : 1)
+    }
+
+    private func badgeText(_ running: RunningApp?) -> String? {
+        let rules = BadgeRules(disabled: dock.behavior.badgeDisabledApps, fullNumber: dock.behavior.fullBadgeNumber)
+        return model.dockController.badges.text(forPath: path, name: running?.name ?? SlotBuilder.appName(path),
+                                                bundleID: running?.bundleID, behavior: rules)
+    }
+}
+
+/// Red pill drawn on an icon's top trailing corner.
+struct BadgePill: View {
+    let text: String
+    let iconSize: CGFloat
+
+    var body: some View {
+        let height = max(iconSize * 0.34, 14)
+        Text(text)
+            .font(.system(size: height * 0.62, weight: .semibold))
+            .monospacedDigit()
+            .foregroundStyle(Tokens.onBadge)
+            .lineLimit(1)
+            .padding(.horizontal, height * 0.3)
+            .frame(minWidth: height, minHeight: height)
+            .background(Tokens.badge, in: Capsule())
+            .accessibilityLabel("\(text) notifications")
     }
 }
 
