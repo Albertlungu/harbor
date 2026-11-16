@@ -213,6 +213,15 @@ private struct BehaviorSettings: View {
                     }
                 }
             }
+            Section("Feel") {
+                Toggle("Animate when opening", isOn: model.setting(\.openAnimation))
+                OpenEffectPicker()
+                Toggle("Play a sound", isOn: model.setting(\.openSound))
+                if model.store.settings.openSound {
+                    Slider(value: model.setting(\.openSoundVolume), in: 0...1) { Text("Volume") }
+                }
+                Text("The sound always matches the animation you choose.").font(.caption).foregroundStyle(Tokens.textMuted)
+            }
             Section("Gestures") {
                 Toggle("Modifier clicks", isOn: model.setting(\.clickGestures))
                 if model.store.settings.clickGestures {
