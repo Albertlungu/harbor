@@ -11,12 +11,22 @@ struct WidgetView: View {
     let state: DockViewState
 
     var body: some View {
-        if let kind = widget.kind {
+        switch widget.kind {
+        case .clock?:
+            ClockWidget(widget: widget, size: size)
+        case .spacer?:
+            Color.clear.accessibilityHidden(true)
+        case .divider?:
+            DividerWidget(widget: widget, size: size, horizontal: state.isHorizontal)
+        case .label?:
+            LabelWidget(widget: widget, size: size, horizontal: state.isHorizontal)
+        case let kind?:
             Image(systemName: WidgetCatalog.symbol(for: kind))
                 .font(.system(size: min(size.width, size.height) * 0.45))
                 .foregroundStyle(Tokens.text)
                 .frame(width: size.width, height: size.height)
-        } else {
+                .help("\(WidgetCatalog.name(for: kind)) isn't finished yet.")
+        case nil:
             Image(systemName: "questionmark.square.dashed")
                 .foregroundStyle(Tokens.textMuted)
                 .help("This widget needs a newer version of Harbor.")
