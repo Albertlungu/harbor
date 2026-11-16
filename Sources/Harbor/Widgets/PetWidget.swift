@@ -1,6 +1,7 @@
 import AppKit
 import HarborCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Reads and writes a pet's needs. Needs only drift between the anchor and now, and the anchor
 /// moves to "now" whenever the pet appears, so time spent hidden or asleep costs nothing.
@@ -126,6 +127,8 @@ struct PetWidget: View {
     let dock: Dock
     let size: CGSize
     let state: DockViewState
+    /// Present when this copy lives in the roaming window rather than in a dock cell.
+    var roam: RoamDriver? = nil
 
     @State private var appeared = false
     @State private var windowVisible = true
@@ -147,6 +150,8 @@ struct PetWidget: View {
     @State private var peekSide = 1.0
     @State private var lastIdle: PetIdle?
     @State private var pointerGaze: PetVector?
+    @State private var actRunning = false
+    @State private var settling = false
 
     private static let lagInterval: TimeInterval = 0.08
 
@@ -156,14 +161,45 @@ struct PetWidget: View {
     private var hour: Int { Calendar.current.component(.hour, from: .now) }
 
     var body: some View {
+        if roam == nil, widget.isRoaming {
+            outline
+        } else {
+            character
+        }
+    }
+
+    /// What a roaming pet leaves behind in its dock cell; clicking it calls the pet home.
+    private var outline: some View {
         let unit = Tokens.Tool.unit(size)
-        let needs = PetStore.stored(widget)
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion || !visible)) { context in
+        return Ellipse()
+            .strokeBorder(Tokens.textMuted.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            .frame(width: unit * 0.7, height: unit * 0.8)
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .onTapGesture { RoamCoordinator.shared.bringHome(item: item, dock: dock) }
+            .onAppear { RoamCoordinator.shared.start(model: model) }
+            .help("Call \(widget.string("name", "Pup")) home")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(widget.string("name", "Pup")) is out roaming")
+            .accessibilityHint("Calls it home")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    /// Whether anything on screen is changing, so a still roaming pet can stop producing frames.
+    private var animating: Bool {
+        guard let roam else { return true }
+        return roam.moving || roam.falling || roam.carried || actRunning || settling || !particles.isEmpty
+    }
+
+    private func timeline(unit: CGFloat, needs: PetNeeds) -> some View {
+        TimelineView(.animation(minimumInterval: roam == nil ? 1 / 60 : 1 / 30,
+                                       paused: reduceMotion || !visible || !animating)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let shown = shownExpression(at: context.date)
             ZStack {
                 PetFigure(unit: unit, pose: pose(at: context.date, time: time, shown: shown, unit: unit),
-                          padBottom: tracksNeeds)
+                          padBottom: tracksNeeds && roam == nil)
+                    .scaleEffect(x: roam?.facing ?? 1, y: 1)
                 if shown == .asleep {
                     PetSnoreBubble(unit: unit, time: time).offset(x: unit * 0.07, y: unit * 0.1)
                     PetSleepLetters(unit: unit, time: time, animated: !reduceMotion)
@@ -175,7 +211,7 @@ struct PetWidget: View {
                         particles.removeAll { $0.id == particle.id }
                     }
                 }
-                if tracksNeeds {
+                if tracksNeeds, roam == nil {
                     VStack {
                         Spacer()
                         Capsule()
@@ -190,12 +226,41 @@ struct PetWidget: View {
                 }
             }
         }
+    }
+
+    private var interactive: some View {
+        timeline(unit: roam?.unit ?? Tokens.Tool.unit(size), needs: PetStore.stored(widget))
         .frame(width: size.width, height: size.height)
         .contentShape(Rectangle())
         .background(PetWindowReader(box: windowBox))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
-        .onHover { inside in hover(inside) }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+            frame = $0
+            noteCell()
+        }
+        .onHover { inside in if roam == nil { hover(inside) } }
         .onTapGesture { pet() }
+        .simultaneousGesture(DragGesture(minimumDistance: 6, coordinateSpace: .global).onChanged { _ in dragMoved() })
+        .modifier(PetRoamExtras(enabled: roam != nil, item: item, dock: dock))
+    }
+
+    private var observing: some View {
+        interactive
+        .onChange(of: roam?.hovering) { if let inside = roam?.hovering { hover(inside) } }
+        .onChange(of: roam?.pointerTick) { updatePointer() }
+        .onChange(of: roam?.startleTick) { startAct(.startle) }
+        .onChange(of: roam?.napping) { refresh() }
+        .onChange(of: roam?.landTick) {
+            settling = true
+            Task {
+                try? await Task.sleep(for: .milliseconds(450))
+                settling = false
+            }
+        }
+    }
+
+    private var character: some View {
+        let needs = PetStore.stored(widget)
+        return observing
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
             guard let window = note.object as? NSWindow, window === windowBox.window else { return }
             windowVisible = window.occlusionState.contains(.visible)
@@ -203,6 +268,7 @@ struct PetWidget: View {
         .onChange(of: PetReactions.shared.feeds[item.id]) { gulp() }
         .onAppear {
             appeared = true
+            if roam == nil { RoamCoordinator.shared.start(model: model) }
             lastInteraction = .now
             if tracksNeeds { PetStore.resume(fields) }
         }
@@ -223,6 +289,20 @@ struct PetWidget: View {
             : "")
         .accessibilityHint("Pets it")
         .accessibilityAddTraits(.isButton)
+    }
+
+    private func noteCell() {
+        guard roam == nil, let window = windowBox.window, frame != .zero else { return }
+        RoamCoordinator.shared.noteCell(PetKey(dock: dock.id, item: item.id),
+                                        center: CGPoint(x: window.frame.minX + frame.midX, y: window.frame.maxY - frame.midY))
+    }
+
+    private func dragMoved() {
+        if let roam {
+            roam.onCarry?()
+        } else if !model.store.editing.contains(dock.id) {
+            RoamCoordinator.shared.dockDragMoved(item: item, dock: dock)
+        }
     }
 
     // MARK: Pose
@@ -375,6 +455,9 @@ struct PetWidget: View {
         pose.lag = CGSize(width: (earlier.x - current.x) * unit, height: (earlier.y - current.y) * unit)
         pose.offset = CGSize(width: current.x * unit, height: current.y * unit)
 
+        if let roam {
+            applyRoamMotion(&pose, roam: roam, date: date, time: time, unit: unit)
+        }
         if hovering && shown != .asleep {
             pose.flipperLeft += sin(time * 12) * 10 + 10
             pose.flipperRight += sin(time * 12 + .pi) * 10 + 10
@@ -387,6 +470,36 @@ struct PetWidget: View {
         if pose.face.wiggles && current.rotation == 0 { pose.rotation = sin(time * 2 * .pi * 4) * 3 }
         pose.gaze = gazeVector(for: pose.face.gaze, override: current.gaze)
         return pose
+    }
+
+    /// Locomotion layered over the shared pose: a waddle while walking, a squash on landing, limp flippers when held.
+    private func applyRoamMotion(_ pose: inout PetPose, roam: RoamDriver, date: Date, time: Double, unit: CGFloat) {
+        if roam.moving, !roam.carried {
+            let step = time * 2 * .pi * (roam.lively ? 3.0 : 2.2)
+            pose.offset.height -= abs(sin(step)) * unit * 0.035
+            pose.rotation += sin(step) * 4
+            pose.flipperLeft += 18 + 18 * sin(step)
+            pose.flipperRight += 18 - 18 * sin(step)
+        }
+        if roam.falling {
+            pose.flipperLeft += 45
+            pose.flipperRight += 45
+        }
+        if roam.carried {
+            pose.flipperLeft += 40
+            pose.flipperRight += 40
+            pose.rotation += sin(time * 3) * 6
+        }
+        if roam.sitting {
+            pose.scale.height *= 0.92
+            pose.scale.width *= 1.04
+        }
+        let landed = date.timeIntervalSince(roam.landAt) / 0.35
+        if landed >= 0, landed < 1 {
+            let squash = roam.landImpact * 0.28 * sin(landed * .pi)
+            pose.scale.height *= 1 - squash
+            pose.scale.width *= 1 + squash * 0.6
+        }
     }
 
     private func gazeVector(for mode: PetGazeMode, override: CGSize?) -> CGSize {
@@ -406,6 +519,7 @@ struct PetWidget: View {
         guard !reduceMotion else { return }
         act = next
         actStart = .now
+        actRunning = true
         quickBlink()
     }
 
@@ -432,6 +546,7 @@ struct PetWidget: View {
         let streak = tapTracker.streak(at: clock)
         hoverStart = hovering ? .now : nil
         wake()
+        roam?.onTouch?()
         if tracksNeeds { PetStore.apply(fields) { $0.petted() } }
         PetStore.raiseBond(fields, petting: true)
         for _ in 0..<Int.random(in: 1...3) {
@@ -489,7 +604,8 @@ struct PetWidget: View {
 
     /// Converts the pointer into the pet's frame of reference; only runs while the pet is on screen.
     private func pointerLoop() async {
-        guard visible, !reduceMotion else {
+        // A roaming pet is told when the pointer moves, so it never polls.
+        guard visible, !reduceMotion, roam == nil else {
             pointerGaze = nil
             return
         }
@@ -515,14 +631,21 @@ struct PetWidget: View {
         guard visible else { return }
         while !Task.isCancelled {
             refresh()
-            try? await Task.sleep(for: .milliseconds(250))
+            if actRunning, actProgress(at: .now) == nil { actRunning = false }
+            try? await Task.sleep(for: .milliseconds(roam == nil ? 250 : 500))
         }
+    }
+
+    /// A roaming pet naps when its body says so, not when it has gone unpetted for a while.
+    private func effectiveIdle(_ idle: TimeInterval) -> TimeInterval {
+        guard let roam else { return idle }
+        return roam.napping ? max(idle, PetLogic.napDelay(hour: hour)) : min(idle, PetLogic.boredAfter - 1)
     }
 
     private func refresh() {
         let now = Date.now
         let current = fields.current
-        let idle = now.timeIntervalSince(lastInteraction)
+        let idle = effectiveIdle(now.timeIntervalSince(lastInteraction))
         let needs = current.bool("needs", false) ? PetStore.stored(current) : PetNeeds()
         let context = PetContext(needs: needs, bond: PetStore.bond(current), idle: idle, hour: hour,
                                  hover: hoverStart.map { now.timeIntervalSince($0) } ?? 0,
@@ -566,7 +689,8 @@ struct PetWidget: View {
         while !Task.isCancelled {
             let wait = PetLogic.idleDelay(hour: hour, roll: .random(in: 0..<1))
             try? await Task.sleep(for: .seconds(wait))
-            guard !Task.isCancelled, expression != .asleep, !hovering, actProgress(at: .now) == nil else { continue }
+            guard !Task.isCancelled, expression != .asleep, !hovering, actProgress(at: .now) == nil,
+                  roam?.moving != true, roam?.falling != true else { continue }
             if Double.random(in: 0..<1) < PetLogic.surpriseProbability(visibleFor: wait) {
                 await perform(PetSurprise.pick(roll: .random(in: 0..<1)))
             } else {
@@ -615,6 +739,26 @@ struct PetWidget: View {
                 emit(.sparkle, origin: CGSize(width: Double(step - 1) * 0.12, height: -0.2),
                      drift: CGSize(width: .random(in: -0.08...0.08), height: -0.2))
             }
+        }
+    }
+}
+
+/// Context menu and file feeding for the roaming window; the dock cell gets both from the dock itself.
+private struct PetRoamExtras: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let enabled: Bool
+    let item: DockItem
+    let dock: Dock
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .contextMenu { PetContextItems(item: item, dock: dock) }
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    PetDrop.handle(providers, item: item, dock: dock, model: model)
+                }
+        } else {
+            content
         }
     }
 }

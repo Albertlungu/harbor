@@ -20,6 +20,7 @@ struct MenuBarMenu: View {
             get: { model.store.settings.previews.enabled },
             set: { v in model.store.updateSettings { $0.previews.enabled = v } }))
         MediaSubmenu()
+        PetSubmenu()
         Divider()
 
         if model.store.docks.isEmpty {

@@ -106,7 +106,7 @@ struct PetFigure: View {
             PetArc(up: true).stroke(Tokens.Pet.outline, style: stroke).frame(width: unit * 0.1, height: unit * 0.025)
         case .worried:
             Capsule().fill(Tokens.Pet.outline).frame(width: unit * 0.09, height: max(unit * 0.016, 1))
-                .rotationEffect(.degrees(-12 * side))
+                .rotationEffect(.degrees(-6 * side))
         }
     }
 
