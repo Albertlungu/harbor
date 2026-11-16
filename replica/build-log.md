@@ -19,4 +19,6 @@ Parity 98.6 / 100 (replica-diff). Partial rows in features.csv and why:
 - VoiceOver labels exist but have not been audited with VoiceOver running.
 - Updates are a link to GitHub releases rather than an in-app updater.
 
+Visual QA pass (2026-11-16), driven with synthetic input and recorded frame by frame: magnification, labels, auto-hide reveal, notch fold, collapse, Edit Mode, floating drag, folder browser, App Stack, Trash, window previews, Manager sections and sheets, every Settings page. Fixed along the way: double labels while gliding, labels peeking from hidden docks, edge reveal flicker, unreadable content on light docks, popovers that sized to nothing, collapse snapping instead of animating.
+
 Not verified live (needs a person at the keyboard): approval alerts for assistant changes, Reserve Dock Space moving real windows, badge reading, gestures, metronome audio.
