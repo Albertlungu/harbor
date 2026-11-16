@@ -52,10 +52,13 @@ struct WidgetLibrary: View {
         let blocked = kind.singleInstance && present
         Button { blocked ? (lockedInfo = kind) : add(kind) } label: {
             VStack(alignment: .leading, spacing: Tokens.Space.s) {
+                let tint = Self.tint(for: WidgetCatalog.category(for: kind))
                 Image(systemName: WidgetCatalog.symbol(for: kind))
-                    .font(.system(size: 26))
+                    .font(.system(size: 26, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(tint)
                     .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Tokens.surface, in: RoundedRectangle(cornerRadius: 8))
+                    .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 HStack {
                     Text(WidgetCatalog.name(for: kind)).font(.callout.weight(.semibold))
                     Spacer()
@@ -77,6 +80,18 @@ struct WidgetLibrary: View {
         }
         .contextMenu {
             Button("Add") { add(kind) }.disabled(blocked)
+        }
+    }
+
+    /// One soft hue per category so the gallery scans by color as well as by name.
+    static func tint(for category: WidgetCategory) -> Color {
+        switch category {
+        case .apps: .blue
+        case .folders: .teal
+        case .clocks: .orange
+        case .tasks: .purple
+        case .system: .green
+        case .all: Tokens.accent
         }
     }
 

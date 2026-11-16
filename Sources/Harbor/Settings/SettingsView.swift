@@ -48,7 +48,9 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
 /// App-wide settings. Per-dock settings live only in the Manager.
 struct SettingsView: View {
-    @State private var page: SettingsPage = .general
+    // HARBOR_SETTINGS opens a given page, a development aid for screenshots.
+    @State private var page: SettingsPage = ProcessInfo.processInfo.environment["HARBOR_SETTINGS"]
+        .flatMap(SettingsPage.init(rawValue:)) ?? .general
 
     var body: some View {
         NavigationSplitView {
@@ -317,7 +319,9 @@ private struct IconLibrarySettings: View {
                         NSApp.activate()
                         if panel.runModal() == .OK { for url in panel.urls { _ = IconLibrary.importFile(url, model: model) } }
                     }
-                    TextField("Image address", text: $address)
+                    TextField("Image address", text: $address, prompt: Text("Paste an image address"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
                     Button("Download") { Task { _ = await IconLibrary.download(address, model: model); address = "" } }
                         .disabled(URL(string: address)?.scheme?.hasPrefix("http") != true)
                 }

@@ -89,7 +89,7 @@ public enum WidgetCatalog {
         switch kind {
         case .clock: "clock"
         case .link: "link"
-        case .finder: "face.smiling"
+        case .finder: "macwindow"
         case .ipAddress: "network"
         case .spacer: "arrow.left.and.right"
         case .divider: "line.diagonal"

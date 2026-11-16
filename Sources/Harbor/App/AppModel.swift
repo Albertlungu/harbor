@@ -71,6 +71,7 @@ final class AppModel {
         } else if store.settings.showManagerOnLaunch || store.docks.isEmpty {
             windows.showManager()
         }
+        if ProcessInfo.processInfo.environment["HARBOR_SETTINGS"] != nil { windows.showSettings() }
     }
 
     func stop() {
