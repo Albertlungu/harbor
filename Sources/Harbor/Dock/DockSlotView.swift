@@ -16,11 +16,13 @@ struct DockSlotView: View {
 
     @State private var dropTargeted = false
     @State private var bounce = false
+    @State private var flash = false
     @State private var showFolder = false
 
     var body: some View {
         content
             .scaleEffect(dropTargeted ? 1.08 : 1)
+            .brightness(flash ? 0.45 : 0)
             .offset(bounceOffset)
             .overlay(alignment: .topLeading) { removeBadge }
             .contentShape(Rectangle())
@@ -156,16 +158,32 @@ struct DockSlotView: View {
     }
 
     private func open(_ item: DockItem) {
-        if item.kind == .app, let path = item.path, !model.running.isRunning(path: path),
-           model.store.settings.attentionStyle == .bounce, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if item.kind == .app, let path = item.path, !model.running.isRunning(path: path) {
+            signalLaunch()
+        }
+        ItemActions.open(item, dock: dock, running: model.running, settings: model.store.settings) { _ in
+            showFolder = true
+        }
+    }
+
+    /// Launch feedback per the app-wide attention style. Badge-only and off stay still.
+    private func signalLaunch() {
+        switch model.store.settings.attentionStyle {
+        case .bounce:
+            guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
             withAnimation(.easeOut(duration: 0.25).repeatCount(3, autoreverses: true)) { bounce = true }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1.5))
                 bounce = false
             }
-        }
-        ItemActions.open(item, dock: dock, running: model.running, settings: model.store.settings) { _ in
-            showFolder = true
+        case .flashOnce:
+            withAnimation(.easeOut(duration: 0.15)) { flash = true }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                withAnimation(.easeIn(duration: 0.3)) { flash = false }
+            }
+        case .badgeOnly, .off:
+            break
         }
     }
 
