@@ -30,6 +30,19 @@ struct OnboardingView: View {
                 .padding(Tokens.Space.s)
             }
 
+            HStack {
+                Text("How lively should Harbor be?").font(.headline)
+                Spacer()
+                Picker("Personality", selection: Binding(
+                    get: { model.store.settings.personality },
+                    set: { p in model.store.updateSettings { p.apply(to: &$0) } })) {
+                    ForEach(Personality.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 260)
+            }
+
             Text("How do you want to start?").font(.headline)
             HStack(spacing: Tokens.Space.l) {
                 if model.nativeDock.isReadable {

@@ -36,7 +36,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
     func showOnboarding() {
         guard let model else { return }
         if onboarding == nil {
-            onboarding = makeWindow(title: "Welcome to Harbor", size: NSSize(width: 560, height: 460),
+            onboarding = makeWindow(title: "Welcome to Harbor", size: NSSize(width: 560, height: 520),
                                     content: OnboardingView().environment(model).harborLook(), autosave: nil)
             onboarding?.styleMask.remove(.resizable)
         }
