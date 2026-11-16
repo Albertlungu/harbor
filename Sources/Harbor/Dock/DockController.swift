@@ -11,14 +11,21 @@ final class DockController {
     private var monitors: [Any] = []
     private var fullscreenTimer: Timer?
     private var reconcileScheduled = false
+    let previews: WindowPreviewController
+    private let reserve = ReserveSpace()
+    let badges = Badges()
+    private let gestures: GestureMonitor
 
     init(model: AppModel) {
         self.model = model
+        previews = WindowPreviewController(model: model)
+        gestures = GestureMonitor(model: model)
     }
 
     func start() {
         noteScreens()
         observeModel()
+        gestures.start()
         reconcile()
 
         let nc = NotificationCenter.default
@@ -54,6 +61,7 @@ final class DockController {
             MainActor.assumeIsolated {
                 self?.pointerMoved()
                 self?.checkFullscreen()
+                self?.checkWindowHover()
             }
         }
     }
@@ -132,6 +140,14 @@ final class DockController {
             controller.close()
             windows[key] = nil
         }
+        updateReserve()
+        badges.setNeeded(store.docks.contains { $0.behavior.showBadges && store.isVisible($0.id) })
+    }
+
+    private func updateReserve() {
+        let settings = model.store.settings
+        let strips = windows.values.compactMap { $0.reservedStrip(settings: settings) }
+        reserve.update(strips: strips, reserveOnDrag: settings.reserveOnDrag)
     }
 
     func controllers(for dockID: UUID) -> [DockWindowController] {
@@ -145,6 +161,20 @@ final class DockController {
         for controller in windows.values { controller.pointerMoved(to: point) }
     }
 
+    private func checkWindowHover() {
+        let watching = windows.values.filter { model.store.dock($0.dockID)?.behavior.hideOnWindowHover == true }
+        // Skip the window list entirely when no dock asks for it, and let any stale fade clear.
+        guard !watching.isEmpty else {
+            for controller in windows.values where controller.windowHoverHidden { controller.updateWindowHover(overlapping: false) }
+            return
+        }
+        let frames = OtherAppWindows.frames()
+        for controller in watching {
+            let bar = controller.barFrame
+            controller.updateWindowHover(overlapping: frames.contains { $0.intersects(bar) })
+        }
+    }
+
     private func checkFullscreen() {
         let fullscreenFrames = FullscreenDetector.fullscreenScreenFrames()
         for controller in windows.values {
@@ -153,6 +183,7 @@ final class DockController {
                 && fullscreenFrames.contains { $0.intersects(controller.screen.geometry.frame.insetBy(dx: 1, dy: 1)) }
             controller.setFullscreenHidden(hide)
         }
+        updateReserve()
     }
 }
 
@@ -179,5 +210,24 @@ enum FullscreenDetector {
             }
         }
         return result
+    }
+}
+
+/// On-screen standard-layer windows of other apps, in AppKit coordinates.
+@MainActor
+enum OtherAppWindows {
+    static func frames() -> [CGRect] {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]],
+              let primaryHeight = NSScreen.screens.first?.frame.maxY else { return [] }
+        let own = ProcessInfo.processInfo.processIdentifier
+        return info.compactMap { window in
+            guard (window[kCGWindowOwnerPID as String] as? pid_t) != own,
+                  (window[kCGWindowLayer as String] as? Int) == 0,
+                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { return nil }
+            return CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
+        }
     }
 }

@@ -16,11 +16,13 @@ struct DockSlotView: View {
 
     @State private var dropTargeted = false
     @State private var bounce = false
+    @State private var flash = false
     @State private var showFolder = false
 
     var body: some View {
         content
             .scaleEffect(dropTargeted ? 1.08 : 1)
+            .brightness(flash ? 0.45 : 0)
             .offset(bounceOffset)
             .overlay(alignment: .topLeading) { removeBadge }
             .contentShape(Rectangle())
@@ -35,6 +37,7 @@ struct DockSlotView: View {
                 }
             }
             .onChange(of: showFolder) { _, open in state.menuOpen = open }
+            .onChange(of: hovered) { _, isHovered in previewHover(isHovered) }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityName)
             .accessibilityAddTraits(.isButton)
@@ -118,8 +121,31 @@ struct DockSlotView: View {
 
     // MARK: Actions
 
+    /// The app this slot launches, if it is one.
+    private var appPath: String? { slot.appPath }
+
+    private func previewHover(_ isHovered: Bool) {
+        if isHovered {
+            state.hoveredSlotID = slot.id
+        } else if state.hoveredSlotID == slot.id {
+            state.hoveredSlotID = nil
+        }
+        guard !editing, let path = appPath else { return }
+        let previews = model.dockController.previews
+        if isHovered {
+            let owner = model.dockController.controllers(for: dock.id).first { $0.state.screenID == state.screenID }
+            previews.hoverBegan(path: path, from: owner)
+        } else {
+            previews.hoverEnded()
+        }
+    }
+
     private func tap() {
         guard !editing else { return }
+        if let modifier = DockGestures.modifier(for: NSEvent.modifierFlags),
+           DockGestures.click(modifier, slot: slot, settings: model.store.settings, running: model.running) {
+            return
+        }
         switch slot {
         case .app(_, let path, _, let spacer):
             guard !spacer else { return }
@@ -132,16 +158,32 @@ struct DockSlotView: View {
     }
 
     private func open(_ item: DockItem) {
-        if item.kind == .app, let path = item.path, !model.running.isRunning(path: path),
-           model.store.settings.attentionStyle == .bounce, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if item.kind == .app, let path = item.path, !model.running.isRunning(path: path) {
+            signalLaunch()
+        }
+        ItemActions.open(item, dock: dock, running: model.running, settings: model.store.settings) { _ in
+            showFolder = true
+        }
+    }
+
+    /// Launch feedback per the app-wide attention style. Badge-only and off stay still.
+    private func signalLaunch() {
+        switch model.store.settings.attentionStyle {
+        case .bounce:
+            guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
             withAnimation(.easeOut(duration: 0.25).repeatCount(3, autoreverses: true)) { bounce = true }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1.5))
                 bounce = false
             }
-        }
-        ItemActions.open(item, dock: dock, running: model.running, settings: model.store.settings) { _ in
-            showFolder = true
+        case .flashOnce:
+            withAnimation(.easeOut(duration: 0.15)) { flash = true }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                withAnimation(.easeIn(duration: 0.3)) { flash = false }
+            }
+        case .badgeOnly, .off:
+            break
         }
     }
 
@@ -202,7 +244,37 @@ struct AppIcon: View {
                         .offset(y: Tokens.Dock.indicatorSize + 2)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if dock.behavior.showBadges, let text = badgeText(running) {
+                    BadgePill(text: text, iconSize: iconSize).offset(x: iconSize * 0.12, y: -iconSize * 0.12)
+                }
+            }
             .opacity(running?.isHidden == true ? 0.6 : 1)
+    }
+
+    private func badgeText(_ running: RunningApp?) -> String? {
+        let rules = BadgeRules(disabled: dock.behavior.badgeDisabledApps, fullNumber: dock.behavior.fullBadgeNumber)
+        return model.dockController.badges.text(forPath: path, name: running?.name ?? SlotBuilder.appName(path),
+                                                bundleID: running?.bundleID, behavior: rules)
+    }
+}
+
+/// Red pill drawn on an icon's top trailing corner.
+struct BadgePill: View {
+    let text: String
+    let iconSize: CGFloat
+
+    var body: some View {
+        let height = max(iconSize * 0.34, 14)
+        Text(text)
+            .font(.system(size: height * 0.62, weight: .semibold))
+            .monospacedDigit()
+            .foregroundStyle(Tokens.onBadge)
+            .lineLimit(1)
+            .padding(.horizontal, height * 0.3)
+            .frame(minWidth: height, minHeight: height)
+            .background(Tokens.badge, in: Capsule())
+            .accessibilityLabel("\(text) notifications")
     }
 }
 
@@ -230,7 +302,10 @@ struct EditDragModifier: ViewModifier {
     func body(content: Content) -> some View {
         if editing, case .item(let item) = slot {
             content
-                .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
+                .onDrag {
+                    DragOutTracker.shared.begin(item: item, dockID: dock.id, model: model)
+                    return NSItemProvider(object: item.id.uuidString as NSString)
+                }
                 .onDrop(of: [.plainText], isTargeted: nil) { providers in
                     guard let provider = providers.first else { return false }
                     _ = provider.loadObject(ofClass: NSString.self) { value, _ in

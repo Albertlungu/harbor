@@ -31,19 +31,29 @@ struct DockBarLayout: View {
     private var icon: CGFloat { CGFloat(dock.style.iconSize) }
     private var spacing: CGFloat { CGFloat(dock.style.spacing.points) }
     private var collapsed: Bool { dock.style.collapse.enabled && dock.style.collapse.collapsed }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var notchFolded: Bool { dock.layout == .notch && state.notchFolded }
     private var floating: Bool { dock.position.mode == .floating && dock.layout == .dock }
 
     var body: some View {
         let frames = slotFrames()
         let bg = backgroundRect(frames)
         ZStack(alignment: .topLeading) {
-            DockBackground(style: dock.style, thickness: CGFloat(dock.style.thickness),
-                           opaque: model.store.settings.opaqueBackgrounds, editing: editing)
-                .frame(width: bg.width, height: bg.height)
-                .offset(x: bg.minX, y: bg.minY)
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                    handleBarDrop(providers, location: nil)
-                }
+            if dock.layout == .notch {
+                NotchBar(style: dock.style, edge: state.hugEdge, folded: state.notchFolded,
+                                open: bg, pill: state.notchPillRect, editing: editing)
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        handleBarDrop(providers, location: nil)
+                    }
+            } else {
+                DockBackground(style: dock.style, thickness: CGFloat(dock.style.thickness),
+                               opaque: model.store.settings.opaqueBackgrounds, editing: editing)
+                    .frame(width: bg.width, height: bg.height)
+                    .offset(x: bg.minX, y: bg.minY)
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        handleBarDrop(providers, location: nil)
+                    }
+            }
 
             if !dock.style.effects.isEmpty && dock.layout == .dock {
                 EffectsView(effects: dock.style.effects, intensity: dock.style.effectIntensity)
@@ -63,6 +73,9 @@ struct DockBarLayout: View {
                 ForEach(frames, id: \.slot.id) { frame in
                     slotView(frame)
                 }
+                .opacity(notchFolded ? 0 : 1)
+                .allowsHitTesting(!notchFolded)
+                .animation(reduceMotion ? nil : .easeInOut(duration: Tokens.Motion.base), value: notchFolded)
             }
 
             if floating {
