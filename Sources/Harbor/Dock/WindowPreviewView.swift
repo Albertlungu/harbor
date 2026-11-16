@@ -123,7 +123,8 @@ private struct PreviewCard: View {
                     if settings.showAppName {
                         Text(model.appName).font(.system(size: 11, weight: .semibold)).foregroundStyle(Tokens.text)
                     }
-                    if settings.showWindowTitle {
+                    // A title that just repeats the app name adds nothing.
+                    if settings.showWindowTitle && !(settings.showAppName && displayTitle == model.appName) {
                         Text(displayTitle).font(.system(size: 11)).foregroundStyle(Tokens.textMuted)
                     }
                 }
@@ -151,7 +152,11 @@ private struct PreviewCard: View {
         if let image = model.images[window.id] {
             Image(decorative: image, scale: 1)
                 .resizable()
-                .aspectRatio(contentMode: .fill)
+                // Fit, not fill: a cropped thumbnail hides the part of the window you'd recognize.
+                .aspectRatio(contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(window.minimized || window.hidden ? 0.6 : 1)
         } else {
             ZStack {
