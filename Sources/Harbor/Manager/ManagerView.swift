@@ -151,6 +151,15 @@ struct DockEditor: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
+            Picker("Section", selection: $model.managerSection) {
+                ForEach(ManagerSection.allCases) { section in
+                    Label(section.title, systemImage: section.symbol).tag(section)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, Tokens.Space.l)
+            .padding(.top, Tokens.Space.m)
             ManagerBanners(dock: dock)
             Group {
                 switch model.managerSection {
@@ -170,15 +179,6 @@ struct DockEditor: View {
                     .frame(width: 180)
                     .onSubmit { if !model.store.rename(dock.id, to: name) { name = dock.name } }
                     .accessibilityLabel("Dock name")
-            }
-            ToolbarItem(placement: .principal) {
-                Picker("Section", selection: $model.managerSection) {
-                    ForEach(ManagerSection.allCases) { section in
-                        Text(section.title).tag(section)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
             }
         }
         .onAppear { name = dock.name }

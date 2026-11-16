@@ -49,11 +49,16 @@ final class AppModel {
         store = DockStore.load(from: file)
         dockController = DockController(model: self)
         windows.model = self
+        // Development aid for screenshots: open the Manager on a given section.
+        if let raw = ProcessInfo.processInfo.environment["HARBOR_SECTION"], let section = ManagerSection(rawValue: raw) {
+            managerSection = section
+        }
     }
 
     func start() {
         applyPresentation()
         dockController.start()
+        HotkeyCenter.shared.start(model: self)
         if store.settings.deepHideNativeDock { _ = nativeDock.deepHide() }
         if !store.settings.onboardingDone {
             windows.showOnboarding()
