@@ -52,12 +52,16 @@ final class WindowManager: NSObject, NSWindowDelegate {
                               backing: .buffered, defer: false)
         window.title = title
         window.isReleasedWhenClosed = false
-        // A hosting view with no size constraints at all: grouped forms report their full,
-        // unscrolled height, and any constraint taken from it made the window taller than
-        // the screen and impossible to move or shrink.
-        let host = NSHostingView(rootView: content)
-        host.sizingOptions = []
-        window.contentView = host
+        // macOS state restoration would re-apply an old frame after launch, undoing keepOnScreen.
+        window.isRestorable = false
+        // The content declares its own size range: an ideal of the default window size and a
+        // small minimum. Left to itself it reported a form's full, unscrolled height, which
+        // pushed the window past the screen. The controller only enforces that minimum.
+        let host = NSHostingController(rootView: content.frame(
+            minWidth: min(size.width, 640), idealWidth: size.width, maxWidth: .infinity,
+            minHeight: 420, idealHeight: size.height, maxHeight: .infinity))
+        host.sizingOptions = [.minSize]
+        window.contentViewController = host
         window.setContentSize(size)
         window.delegate = self
         window.contentMinSize = NSSize(width: min(size.width, 640), height: 420)

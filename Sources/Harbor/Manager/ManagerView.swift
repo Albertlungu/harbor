@@ -161,7 +161,7 @@ struct DockEditor: View {
             .padding(.horizontal, Tokens.Space.l)
             .padding(.top, Tokens.Space.m)
             ManagerBanners(dock: dock)
-            Group {
+            FillAvailable {
                 switch model.managerSection {
                 case .items: ItemsSection(dock: dock)
                 case .style: StyleSection(dock: dock)
@@ -170,7 +170,6 @@ struct DockEditor: View {
                 case .behavior: BehaviorSection(dock: dock)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -231,7 +230,9 @@ struct Banner: View {
     var body: some View {
         HStack(spacing: Tokens.Space.m) {
             Image(systemName: symbol).foregroundStyle(color)
-            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            // No fixedSize here: measured at a narrow width during layout, a pinned height
+            // wrapped into a tall column and forced the whole window taller than the screen.
+            Text(text).font(.callout).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
             Spacer()
             if let action { Button(action, action: perform) }
         }
@@ -252,6 +253,19 @@ struct Banner: View {
         case .info: Tokens.accent
         case .warning: Tokens.warning
         case .error: Tokens.danger
+        }
+    }
+}
+
+/// Gives its content exactly the space on offer and reports nothing back up. Lists and
+/// grouped forms otherwise report their full, unscrolled height, which made the window
+/// refuse to be shorter than every row and clipped the layout instead of scrolling.
+struct FillAvailable<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            content.frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 }

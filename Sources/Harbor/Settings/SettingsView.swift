@@ -65,7 +65,7 @@ struct SettingsView: View {
             }
             .navigationSplitViewColumnWidth(190)
         } detail: {
-            Group {
+            FillAvailable {
                 switch page {
                 case .general: GeneralSettings()
                 case .behavior: BehaviorSettings()
