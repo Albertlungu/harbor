@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, behavior, newDocks, icons, previews, permissions, backup, diagnostics
+    case general, behavior, newDocks, icons, previews, permissions, backup, integrations, diagnostics
     var id: String { rawValue }
 
     var title: String {
@@ -16,6 +16,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .previews: "Window Previews"
         case .permissions: "Permissions"
         case .backup: "Backup"
+        case .integrations: "Integrations"
         case .diagnostics: "Diagnostics"
         }
     }
@@ -29,6 +30,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .previews: "rectangle.on.rectangle"
         case .permissions: "lock.shield"
         case .backup: "externaldrive"
+        case .integrations: "puzzlepiece.extension"
         case .diagnostics: "stethoscope"
         }
     }
@@ -38,7 +40,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general, .behavior: "App"
         case .newDocks, .icons: "Personalize"
         case .previews: "Features"
-        case .permissions, .backup: "System"
+        case .permissions, .backup, .integrations: "System"
         case .diagnostics: "Support"
         }
     }
@@ -70,6 +72,7 @@ struct SettingsView: View {
                 case .previews: PreviewSettingsPage()
                 case .permissions: PermissionsSettings()
                 case .backup: BackupSettings()
+                case .integrations: IntegrationsSettings()
                 case .diagnostics: DiagnosticsSettings()
                 }
             }

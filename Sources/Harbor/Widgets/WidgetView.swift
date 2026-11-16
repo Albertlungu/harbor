@@ -20,12 +20,39 @@ struct WidgetView: View {
             DividerWidget(widget: widget, size: size, horizontal: state.isHorizontal)
         case .label?:
             LabelWidget(widget: widget, size: size, horizontal: state.isHorizontal)
-        case let kind?:
-            Image(systemName: WidgetCatalog.symbol(for: kind))
-                .font(.system(size: min(size.width, size.height) * 0.45))
-                .foregroundStyle(Tokens.text)
-                .frame(width: size.width, height: size.height)
-                .help("\(WidgetCatalog.name(for: kind)) isn't finished yet.")
+        case .battery?, .cpu?, .memory?, .gpu?:
+            MonitorWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .ipAddress?:
+            IPWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .bluetoothBattery?:
+            BluetoothWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .finder?:
+            FinderWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .link?:
+            LinkWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .folderStack?:
+            FolderStackWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .appStack?:
+            AppStackWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .shelf?:
+            ShelfWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .fileShelf?:
+            FileShelfWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .trash?:
+            TrashWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .clicker?:
+            ClickerWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .timer?:
+            TimerWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .metronome?:
+            MetronomeWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .pet?:
+            PetWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .spaceAwareness?:
+            SpaceIndicatorWidget(item: item, widget: widget, dock: dock, size: size, state: state)
+        case .liveDock?, .runningApps?:
+            // Expanded into app slots by SlotBuilder; never drawn as a widget.
+            EmptyView()
         case nil:
             Image(systemName: "questionmark.square.dashed")
                 .foregroundStyle(Tokens.textMuted)
@@ -38,7 +65,12 @@ struct WidgetView: View {
 @MainActor
 enum WidgetDrop {
     static func handle(_ providers: [NSItemProvider], item: DockItem, dock: Dock, model: AppModel) -> Bool {
-        false
+        switch item.widget?.kind {
+        case .folderStack?, .appStack?, .shelf?, .fileShelf?, .trash?:
+            return StorageWidgetDrop.handle(providers, item: item, dock: dock, model: model)
+        default:
+            return false
+        }
     }
 }
 
@@ -48,6 +80,15 @@ struct WidgetContextItems: View {
     let dock: Dock
 
     var body: some View {
-        EmptyView()
+        switch item.widget?.kind {
+        case .battery?, .cpu?, .memory?, .gpu?, .ipAddress?, .bluetoothBattery?:
+            SystemWidgetMenu(item: item, dock: dock)
+        case .finder?, .link?, .folderStack?, .appStack?, .shelf?, .fileShelf?, .trash?:
+            StorageWidgetMenu(item: item, dock: dock)
+        case .clicker?, .timer?, .metronome?, .pet?, .spaceAwareness?:
+            ToolWidgetMenu(item: item, dock: dock)
+        default:
+            EmptyView()
+        }
     }
 }

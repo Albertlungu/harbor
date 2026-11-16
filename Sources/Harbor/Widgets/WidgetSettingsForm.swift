@@ -14,7 +14,16 @@ struct WidgetSettingsForm: View {
             case .spacer?: spacer
             case .divider?: divider
             case .label?: label
-            case .liveDock?, .runningApps?, .spaceAwareness?: appList
+            case .liveDock?, .runningApps?: appList
+            case .spaceAwareness?:
+                appList
+                ToolWidgetSettings(item: item, dockID: dockID)
+            case .battery?, .cpu?, .memory?, .gpu?, .ipAddress?, .bluetoothBattery?:
+                SystemWidgetSettings(item: item, dockID: dockID)
+            case .finder?, .link?, .folderStack?, .appStack?, .shelf?, .fileShelf?, .trash?:
+                StorageWidgetSettings(item: item, dockID: dockID)
+            case .clicker?, .timer?, .metronome?, .pet?:
+                ToolWidgetSettings(item: item, dockID: dockID)
             default:
                 Text("This widget has no settings yet.").foregroundStyle(Tokens.textMuted)
             }
