@@ -20,6 +20,7 @@ app:
 	cp .build/release/Harbor $(APP)/Contents/MacOS/Harbor
 	cp Support/Info.plist $(APP)/Contents/Info.plist
 	if [ -f Support/AppIcon.icns ]; then cp Support/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns; fi
+	if [ -f Support/MenuBarIcon.png ]; then cp Support/MenuBarIcon.png Support/MenuBarIcon@2x.png $(APP)/Contents/Resources/; fi
 	if [ -f .build/release/harbor-mcp ]; then cp .build/release/harbor-mcp $(APP)/Contents/MacOS/harbor-mcp; fi
 	codesign --force --sign - $(APP)
 
