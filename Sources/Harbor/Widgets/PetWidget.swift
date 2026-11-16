@@ -44,9 +44,78 @@ enum PetStore {
         write(fields, stored(fields.current), anchor: .now)
     }
 
+    /// Bond fades in real time, hidden or not, so a long absence cools the pet without erasing it.
+    static func bond(_ widget: WidgetConfig, now: Date = .now) -> Double {
+        let stored = widget.stateDouble("bond") ?? 0
+        let stamp = widget.stateDouble("bondAt") ?? now.timeIntervalSince1970
+        return PetLogic.decayedBond(stored, elapsed: now.timeIntervalSince1970 - stamp)
+    }
+
+    static func raiseBond(_ fields: WidgetFields, petting: Bool, now: Date = .now) {
+        let raised = PetLogic.bond(bond(fields.current, now: now), afterPetting: petting)
+        fields.setStates(["bond": .number(raised), "bondAt": .number(now.timeIntervalSince1970)])
+    }
+
     static func pause(_ fields: WidgetFields) {
         write(fields, current(fields.current, now: .now), anchor: nil)
     }
+}
+
+/// One-shot performances. Only one plays at a time, which keeps the pose a function of a single clock.
+private enum PetAct {
+    case pet, hop, startle, giggle, spin, wave, scratch, yawn, chaseTail, hum, peek, lookAround
+    case gulp, sneeze, flop, gift
+
+    var duration: Double {
+        switch self {
+        case .pet: 1.0
+        case .hop: 1.2
+        case .startle: 2.4
+        case .giggle: 0.8
+        case .spin: 1.2
+        case .wave: 1.6
+        case .scratch: 1.8
+        case .yawn: 2.2
+        case .chaseTail: 1.6
+        case .hum: 2.4
+        case .peek: 1.8
+        case .lookAround: 2.2
+        case .gulp: 0.8
+        case .sneeze: 1.2
+        case .flop: 2.6
+        case .gift: 1.6
+        }
+    }
+
+    /// A face the act imposes while it plays, or nil to keep the underlying mood.
+    func expression(at p: Double) -> PetExpression? {
+        switch self {
+        case .pet, .wave, .hum, .yawn, .flop, .scratch: .happy
+        case .hop: .surprised
+        case .startle: p < 0.4 ? .surprised : .excited
+        case .giggle, .spin, .chaseTail: .excited
+        case .peek: .curious
+        case .gulp: p < 0.25 ? .surprised : .happy
+        case .sneeze: p < 0.55 ? .happy : .surprised
+        case .gift: .proud
+        case .lookAround: nil
+        }
+    }
+}
+
+/// Body motion for one instant of an act, in unit fractions and degrees.
+private struct PetActFrame {
+    var x = 0.0
+    var y = 0.0
+    var squash = 0.0
+    var stretchX = 0.0
+    var rotation = 0.0
+    var headTilt = 0.0
+    var flipperLeft = 0.0
+    var flipperRight = 0.0
+    var rightOffset = CGSize.zero
+    var mouthOpen = 0.0
+    var gaze: CGSize?
 }
 
 struct PetWidget: View {
@@ -63,44 +132,48 @@ struct PetWidget: View {
     @State private var windowBox = PetWindowBox()
     @State private var frame: CGRect = .zero
 
+    @State private var expression: PetExpression = .calm
     @State private var blinking = false
     @State private var hovering = false
-    @State private var asleep = false
     @State private var lastInteraction = Date.now
+    @State private var didYawn = false
     @State private var tapTracker = PetTapTracker()
-    @State private var hearts: [Int] = []
-    @State private var nextHeart = 0
-
-    @State private var pointerGaze: PetVector?
-    @State private var lookGaze: PetVector = .zero
-    @State private var wanderX: CGFloat = 0
-
     @State private var hoverStart: Date?
-    @State private var clickStart: Date?
-    @State private var danceStart: Date?
-    @State private var stretchStart: Date?
-    @State private var gulpStart: Date?
+    @State private var particles: [PetParticle] = []
+    @State private var nextParticle = 0
+
+    @State private var act: PetAct?
+    @State private var actStart = Date.now
+    @State private var peekSide = 1.0
+    @State private var lastIdle: PetIdle?
+    @State private var pointerGaze: PetVector?
+
+    private static let lagInterval: TimeInterval = 0.08
 
     private var fields: WidgetFields { WidgetFields(model: model, itemID: item.id, dockID: dock.id) }
     private var tracksNeeds: Bool { widget.bool("needs", false) }
     private var visible: Bool { appeared && windowVisible }
+    private var hour: Int { Calendar.current.component(.hour, from: .now) }
 
     var body: some View {
         let unit = Tokens.Tool.unit(size)
         let needs = PetStore.stored(widget)
-        let mood: PetMood = tracksNeeds ? PetLogic.mood(for: needs) : .content
         TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion || !visible)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
+            let shown = shownExpression(at: context.date)
             ZStack {
-                PetFigure(unit: unit, pose: pose(at: context.date, time: time, mood: mood, unit: unit),
+                PetFigure(unit: unit, pose: pose(at: context.date, time: time, shown: shown, unit: unit),
                           padBottom: tracksNeeds)
-                if asleep {
+                if shown == .asleep {
+                    PetSnoreBubble(unit: unit, time: time).offset(x: unit * 0.07, y: unit * 0.1)
                     PetSleepLetters(unit: unit, time: time, animated: !reduceMotion)
-                } else if mood == .hungry {
-                    PetFishBubble(unit: unit).offset(x: unit * 0.22, y: -unit * 0.4)
+                } else if shown == .hungry {
+                    PetFishBubble(unit: unit).offset(x: unit * 0.34, y: unit * 0.2)
                 }
-                ForEach(hearts, id: \.self) { id in
-                    PetHeart(unit: unit, reduceMotion: reduceMotion) { hearts.removeAll { $0 == id } }
+                ForEach(particles) { particle in
+                    PetParticleView(unit: unit, particle: particle, animated: !reduceMotion) {
+                        particles.removeAll { $0.id == particle.id }
+                    }
                 }
                 if tracksNeeds {
                     VStack {
@@ -140,8 +213,9 @@ struct PetWidget: View {
         }
         .task(id: visible) { await settleLoop() }
         .task(id: visible && !reduceMotion) { await pointerLoop() }
-        .task(id: visible) { await sleepLoop() }
-        .task(id: visible) { await idleLoop() }
+        .task(id: visible) { await mindLoop() }
+        .task(id: visible) { await blinkLoop() }
+        .task(id: visible && !reduceMotion) { await idleLoop() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(widget.string("name", "Pup"))
         .accessibilityValue(tracksNeeds
@@ -153,88 +227,253 @@ struct PetWidget: View {
 
     // MARK: Pose
 
-    private func progress(_ start: Date?, _ duration: Double, at date: Date) -> Double? {
-        guard let start else { return nil }
-        let elapsed = date.timeIntervalSince(start)
-        return elapsed >= 0 && elapsed < duration ? elapsed / duration : nil
+    private func actProgress(at date: Date) -> (act: PetAct, elapsed: Double, p: Double)? {
+        guard let act else { return nil }
+        let elapsed = date.timeIntervalSince(actStart)
+        guard elapsed >= 0, elapsed < act.duration else { return nil }
+        return (act, elapsed, elapsed / act.duration)
     }
 
-    private func pose(at date: Date, time: Double, mood: PetMood, unit: CGFloat) -> PetPose {
-        var pose = PetPose()
-        pose.mood = mood
-        pose.lid = asleep || blinking ? 1 : (mood == .sleepy ? 0.45 : 0)
-        guard !reduceMotion else { return pose }
+    private func shownExpression(at date: Date) -> PetExpression {
+        if expression == .asleep { return .asleep }
+        guard let current = actProgress(at: date) else { return expression }
+        return current.act.expression(at: current.p) ?? expression
+    }
 
-        var lift = sin(time * (asleep ? 1.1 : 1.8)) * 0.02
-        pose.twinkle = (sin(time * 3) + 1) / 2
-        pose.tail = asleep ? 0 : sin(time * 1.4) * 14
+    private func envelope(_ p: Double) -> Double { max(0, min(1, p / 0.15, (1 - p) / 0.15)) }
 
-        if let p = progress(hoverStart, 0.5, at: date) { lift -= 0.07 * sin(p * .pi) }
-        if hovering && !asleep {
-            pose.flipperLeft = sin(time * 12) * 18
-            pose.flipperRight = sin(time * 12 + .pi) * 18
-        }
-        if let p = progress(clickStart, 0.7, at: date) { lift -= 0.14 * (1 - p) * abs(sin(p * 2 * .pi)) }
-        if let p = progress(danceStart, 1.1, at: date) {
-            let eased = p < 0.5 ? 2 * p * p : 1 - pow(-2 * p + 2, 2) / 2
-            pose.rotation = 360 * eased
-            lift -= 0.1 * abs(sin(p * 3 * .pi))
-            pose.flipperLeft = 30
-            pose.flipperRight = 30
-        }
-        if let p = progress(stretchStart, 0.9, at: date) {
+    private func easeInOut(_ p: Double) -> Double { p < 0.5 ? 2 * p * p : 1 - pow(-2 * p + 2, 2) / 2 }
+
+    private func motion(of act: PetAct, elapsed e: Double, p: Double) -> PetActFrame {
+        var f = PetActFrame()
+        let env = envelope(p)
+        switch act {
+        case .pet:
+            let hop = PetMotion.hop(elapsed: e)
+            f.y = -0.08 * hop.lift
+            f.squash = hop.squash
+            f.flipperLeft = 25 * sin(p * .pi)
+            f.flipperRight = 25 * sin(p * .pi)
+        case .hop:
+            let hop = PetMotion.hop(elapsed: e)
+            f.y = -0.18 * hop.lift
+            f.squash = hop.squash
+        case .startle:
+            let hop = PetMotion.hop(elapsed: e)
+            f.y = -0.2 * hop.lift
+            f.squash = hop.squash
+            if e > 1.0 {
+                let decay = max(0, 1 - (e - 1.0) / 1.4)
+                f.rotation = sin((e - 1.0) * 2 * .pi * 5) * 8 * decay
+                f.flipperLeft = 20 * decay
+                f.flipperRight = 20 * decay
+            }
+        case .giggle:
+            let beat = abs(sin(e * 2 * .pi * 4.5))
+            f.rotation = sin(e * 2 * .pi * 9) * 7 * env
+            f.y = -0.015 * beat
+            f.flipperLeft = 30 * beat
+            f.flipperRight = 30 * beat
+        case .spin:
+            f.rotation = 360 * easeInOut(p)
+            f.y = -0.1 * abs(sin(p * 3 * .pi))
+            f.flipperLeft = 30
+            f.flipperRight = 30
+        case .wave:
+            f.flipperRight = 70 * env + 14 * sin(e * 14) * env
+            f.headTilt = 5 * env
+        case .scratch:
+            f.flipperRight = 75 * env + 12 * sin(e * 32) * env
+            f.rightOffset = CGSize(width: -0.06 * env + 0.012 * sin(e * 32) * env, height: -0.11 * env)
+            f.headTilt = 8 * env
+        case .yawn:
             let arc = sin(p * .pi)
-            pose.scale = CGSize(width: 1 - 0.04 * arc, height: 1 + 0.12 * arc)
-            pose.flipperLeft = 40 * arc
-            pose.flipperRight = 40 * arc
+            f.mouthOpen = arc
+            f.squash = -0.08 * arc
+            f.stretchX = -0.03 * arc
+            f.flipperLeft = 40 * arc
+            f.flipperRight = 40 * arc
+        case .chaseTail:
+            f.rotation = 720 * easeInOut(p)
+            f.headTilt = 8 * env
+        case .hum:
+            f.rotation = sin(e * 2 * .pi * 0.9) * 4 * env
+            f.y = -0.01 * sin(e * 2 * .pi * 1.8) * env
+        case .peek:
+            f.headTilt = 9 * peekSide * env
+            f.x = 0.02 * peekSide * env
+            f.gaze = pointerGaze.map { CGSize(width: $0.x, height: $0.y) } ?? CGSize(width: 0.9 * peekSide, height: -0.1)
+        case .lookAround:
+            f.gaze = CGSize(width: sin(p * 2 * .pi * 1.5) * 0.9 * env, height: -0.15 * env)
+        case .gulp:
+            if e < 0.15 {
+                f.squash = 0.08 * sin(e / 0.15 * .pi / 2)
+            } else {
+                let q = (e - 0.15) / 0.65
+                let pulse = 0.05 * sin(q * 4 * .pi)
+                f.mouthOpen = q < 0.5 ? sin(q / 0.5 * .pi) : 0
+                f.squash = -pulse
+                f.stretchX = pulse
+            }
+        case .sneeze:
+            if p < 0.45 {
+                f.headTilt = -8 * (p / 0.45)
+                f.squash = -0.04 * (p / 0.45)
+            } else {
+                let burst = sin(min((p - 0.45) / 0.2, 1) * .pi)
+                f.headTilt = 8 * burst
+                f.mouthOpen = burst
+                f.squash = 0.1 * burst
+                f.y = -0.04 * burst
+            }
+        case .flop:
+            let rise = act.duration * 0.75
+            f.rotation = e < rise ? 80 * PetMotion.spring(e, response: 0.35) : 80 * (1 - PetMotion.spring(e - rise, response: 0.35))
+            f.y = 0.1 * min(1, e / 0.2) * (e < rise ? 1 : max(0, 1 - (e - rise) / 0.2))
+            f.flipperLeft = e > 0.5 && e < rise ? 35 * abs(sin(e * 8)) : 0
+            f.flipperRight = f.flipperLeft
+        case .gift:
+            let hop = PetMotion.hop(elapsed: e)
+            f.y = -0.06 * hop.lift
+            f.squash = hop.squash * 0.5
+            f.flipperRight = 45 * env
         }
-        if let p = progress(gulpStart, 0.6, at: date) {
-            pose.mouthOpen = p < 0.5 ? sin(p / 0.5 * .pi) : 0
-            let pulse = 1 + 0.05 * sin(p * 4 * .pi)
-            pose.scale = CGSize(width: pulse, height: 2 - pulse)
-        }
-        pose.offset = CGSize(width: wanderX, height: lift * unit)
+        return f
+    }
 
-        var gaze = pointerGaze ?? lookGaze
-        if mood == .hungry && !hovering { gaze = PetVector(x: gaze.x * 0.5, y: 0.85) }
-        gaze = PetLogic.clampGaze(gaze)
-        pose.gaze = CGSize(width: gaze.x, height: gaze.y)
+    private func pose(at date: Date, time: Double, shown: PetExpression, unit: CGFloat) -> PetPose {
+        var pose = PetPose()
+        pose.face = shown.face
+        pose.lid = blinking ? 1 : 0
+        guard !reduceMotion else {
+            pose.gaze = gazeVector(for: pose.face.gaze, override: nil)
+            return pose
+        }
+
+        let breath = PetMotion.breath(at: shown == .asleep ? time * 0.75 : time)
+        pose.scale = CGSize(width: 1 - 0.015 * breath, height: 1 + 0.03 * breath)
+        pose.twinkle = (sin(time * 3) + 1) / 2
+        pose.tail = shown == .asleep ? 0 : sin((time - Self.lagInterval) * 1.4) * 14
+
+        var current = PetActFrame()
+        var earlier = PetActFrame()
+        if let now = actProgress(at: date) {
+            current = motion(of: now.act, elapsed: now.elapsed, p: now.p)
+        }
+        if let before = actProgress(at: date.addingTimeInterval(-Self.lagInterval)) {
+            earlier = motion(of: before.act, elapsed: before.elapsed, p: before.p)
+        }
+        pose.scale.width *= 1 + current.stretchX
+        pose.scale.height *= 1 - current.squash
+        pose.rotation = current.rotation
+        pose.headTilt = current.headTilt
+        pose.flipperLeft = current.flipperLeft
+        pose.flipperRight = current.flipperRight
+        pose.rightFlipperOffset = CGSize(width: current.rightOffset.width * unit, height: current.rightOffset.height * unit)
+        pose.mouthOpen = current.mouthOpen
+        // Appendages sample the body a beat earlier, so they trail it and settle just after it stops.
+        pose.lag = CGSize(width: (earlier.x - current.x) * unit, height: (earlier.y - current.y) * unit)
+        pose.offset = CGSize(width: current.x * unit, height: current.y * unit)
+
+        if hovering && shown != .asleep {
+            pose.flipperLeft += sin(time * 12) * 10 + 10
+            pose.flipperRight += sin(time * 12 + .pi) * 10 + 10
+            if let start = hoverStart, date.timeIntervalSince(start) >= PetLogic.warmAfter {
+                pose.scale.width *= 1.04
+                pose.scale.height *= 1.04
+                pose.headTilt += 6
+            }
+        }
+        if pose.face.wiggles && current.rotation == 0 { pose.rotation = sin(time * 2 * .pi * 4) * 3 }
+        pose.gaze = gazeVector(for: pose.face.gaze, override: current.gaze)
         return pose
+    }
+
+    private func gazeVector(for mode: PetGazeMode, override: CGSize?) -> CGSize {
+        let followed = override ?? pointerGaze.map { CGSize(width: $0.x, height: $0.y) } ?? .zero
+        switch mode {
+        case .follow:
+            let clamped = PetLogic.clampGaze(PetVector(x: followed.width, y: followed.height))
+            return CGSize(width: clamped.x, height: clamped.y)
+        case .down: return CGSize(width: 0.5, height: 0.9)
+        case .away: return CGSize(width: followed.width >= 0 ? -0.9 : 0.9, height: 0.3)
+        }
     }
 
     // MARK: Interaction
 
+    private func startAct(_ next: PetAct) {
+        guard !reduceMotion else { return }
+        act = next
+        actStart = .now
+        quickBlink()
+    }
+
     private func wake() {
         lastInteraction = .now
-        guard asleep else { return }
-        asleep = false
-        if !reduceMotion { stretchStart = .now }
+        didYawn = false
+        refresh()
     }
 
     private func hover(_ inside: Bool) {
         hovering = inside
+        hoverStart = inside ? .now : nil
         guard inside else { return }
         wake()
-        if !reduceMotion { hoverStart = .now }
+        if !reduceMotion, PetLogic.showsHoverHeart(bond: PetStore.bond(fields.current)) {
+            emit(.heart, origin: CGSize(width: 0.12, height: -0.28), drift: CGSize(width: 0.05, height: -0.25))
+        }
     }
 
     private func pet() {
+        let wasAsleep = expression == .asleep
+        let clock = ProcessInfo.processInfo.systemUptime
+        let burst = tapTracker.tap(at: clock)
+        let streak = tapTracker.streak(at: clock)
+        hoverStart = hovering ? .now : nil
         wake()
         if tracksNeeds { PetStore.apply(fields) { $0.petted() } }
-        nextHeart += 1
-        hearts.append(nextHeart)
-        if hearts.count > 4 { hearts.removeFirst() }
-        guard !reduceMotion else { return }
-        if tapTracker.tap(at: ProcessInfo.processInfo.systemUptime) {
-            danceStart = .now
+        PetStore.raiseBond(fields, petting: true)
+        for _ in 0..<Int.random(in: 1...3) {
+            emit(.heart, origin: CGSize(width: .random(in: -0.12...0.12), height: -0.25),
+                 drift: CGSize(width: .random(in: -0.15...0.15), height: .random(in: -0.4 ... -0.25)))
+        }
+        guard !wasAsleep else { return }
+        if burst {
+            startAct(.spin)
+        } else if streak >= 2 {
+            startAct(.giggle)
         } else {
-            clickStart = .now
+            startAct(.pet)
         }
     }
 
     private func gulp() {
         wake()
-        if !reduceMotion { gulpStart = .now }
+        PetStore.raiseBond(fields, petting: false)
+        startAct(.gulp)
+        guard !reduceMotion else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            for _ in 0..<6 {
+                emit(.crumb, origin: CGSize(width: 0, height: 0.17),
+                     drift: CGSize(width: .random(in: -0.3...0.3), height: .random(in: -0.1...0.2)))
+            }
+        }
+    }
+
+    private func emit(_ kind: PetParticle.Kind, origin: CGSize, drift: CGSize) {
+        nextParticle += 1
+        particles.append(PetParticle(id: nextParticle, kind: kind, origin: origin, drift: drift))
+        if particles.count > 10 { particles.removeFirst() }
+    }
+
+    private func quickBlink() {
+        Task {
+            blinking = true
+            try? await Task.sleep(for: .seconds(PetLogic.blinkDuration))
+            blinking = false
+        }
     }
 
     // MARK: Loops
@@ -271,47 +510,110 @@ struct PetWidget: View {
         withAnimation(.linear(duration: 1 / 30)) { pointerGaze = next }
     }
 
-    private func sleepLoop() async {
+    /// Re-derives the mood a few times a second; it only compares a handful of numbers.
+    private func mindLoop() async {
         guard visible else { return }
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(5))
-            guard !asleep, !hovering else { continue }
-            let hour = Calendar.current.component(.hour, from: .now)
-            if PetLogic.shouldSleep(idle: Date.now.timeIntervalSince(lastInteraction), hour: hour) { asleep = true }
+            refresh()
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
+    private func refresh() {
+        let now = Date.now
+        let current = fields.current
+        let idle = now.timeIntervalSince(lastInteraction)
+        let needs = current.bool("needs", false) ? PetStore.stored(current) : PetNeeds()
+        let context = PetContext(needs: needs, bond: PetStore.bond(current), idle: idle, hour: hour,
+                                 hover: hoverStart.map { now.timeIntervalSince($0) } ?? 0,
+                                 clickStreak: tapTracker.streak(at: ProcessInfo.processInfo.systemUptime))
+        if PetLogic.shouldYawn(idle: idle, hour: hour), !didYawn {
+            didYawn = true
+            startAct(.yawn)
+        }
+        let next = PetLogic.expression(context)
+        guard next != expression else { return }
+        let wasAsleep = expression == .asleep
+        expression = next
+        if wasAsleep {
+            // Waking is a startled jump followed by a happy wiggle.
+            startAct(.startle)
+        } else {
+            quickBlink()
+        }
+    }
+
+    private func blinkLoop() async {
+        guard visible else { return }
+        while !Task.isCancelled {
+            let plan = PetLogic.blinkPlan(delayRoll: .random(in: 0...1), doubleRoll: .random(in: 0...1))
+            try? await Task.sleep(for: .seconds(plan.delay))
+            guard expression != .asleep else { continue }
+            blinking = true
+            try? await Task.sleep(for: .seconds(PetLogic.blinkDuration))
+            blinking = false
+            if plan.double {
+                try? await Task.sleep(for: .milliseconds(120))
+                blinking = true
+                try? await Task.sleep(for: .seconds(PetLogic.blinkDuration))
+                blinking = false
+            }
         }
     }
 
     private func idleLoop() async {
-        guard visible else { return }
-        var untilLook = Double.random(in: 5...9)
-        var untilWander = Double.random(in: 18...35)
+        guard visible, !reduceMotion else { return }
         while !Task.isCancelled {
-            let wait = Double.random(in: 2...5)
+            let wait = PetLogic.idleDelay(hour: hour, roll: .random(in: 0..<1))
             try? await Task.sleep(for: .seconds(wait))
-            if !asleep {
-                blinking = true
-                try? await Task.sleep(for: .milliseconds(140))
-                blinking = false
+            guard !Task.isCancelled, expression != .asleep, !hovering, actProgress(at: .now) == nil else { continue }
+            if Double.random(in: 0..<1) < PetLogic.surpriseProbability(visibleFor: wait) {
+                await perform(PetSurprise.pick(roll: .random(in: 0..<1)))
+            } else {
+                let bond = PetStore.bond(fields.current)
+                let idle = PetLogic.pickIdle(previous: lastIdle, bond: bond, hour: hour, roll: .random(in: 0..<1))
+                lastIdle = idle
+                await perform(idle)
             }
-            guard !reduceMotion, !asleep else { continue }
-            untilLook -= wait
-            untilWander -= wait
-            if untilLook <= 0 {
-                untilLook = Double.random(in: 5...9)
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    lookGaze = PetVector(x: .random(in: -1...1), y: .random(in: -0.6...0.6))
-                }
-                try? await Task.sleep(for: .seconds(1.2))
-                withAnimation(.easeInOut(duration: 0.3)) { lookGaze = .zero }
+        }
+    }
+
+    private func perform(_ idle: PetIdle) async {
+        peekSide = Bool.random() ? 1 : -1
+        switch idle {
+        case .lookAround: startAct(.lookAround)
+        case .wave: startAct(.wave)
+        case .scratch: startAct(.scratch)
+        case .yawn: startAct(.yawn)
+        case .chaseTail: startAct(.chaseTail)
+        case .peek: startAct(.peek)
+        case .hum:
+            startAct(.hum)
+            for step in 0..<3 {
+                try? await Task.sleep(for: .milliseconds(500))
+                emit(.note, origin: CGSize(width: 0.3 + 0.03 * Double(step), height: -0.2),
+                     drift: CGSize(width: .random(in: 0.0...0.1), height: -0.25))
             }
-            if untilWander <= 0, !hovering {
-                untilWander = Double.random(in: 18...35)
-                // Stay inside the cell: the body only leaves a small margin on each side.
-                let reach = max((size.width - Tokens.Tool.unit(size) * 0.78) / 2 - 2, 0)
-                let target = CGFloat.random(in: -reach...reach)
-                withAnimation(.easeInOut(duration: 1.4)) { wanderX = target }
-                try? await Task.sleep(for: .seconds(3))
-                withAnimation(.easeInOut(duration: 1.4)) { wanderX = 0 }
+        }
+    }
+
+    private func perform(_ surprise: PetSurprise) async {
+        switch surprise {
+        case .sneeze:
+            startAct(.sneeze)
+            try? await Task.sleep(for: .milliseconds(600))
+            for _ in 0..<3 {
+                emit(.crumb, origin: CGSize(width: 0, height: 0.15),
+                     drift: CGSize(width: .random(in: -0.25...0.25), height: .random(in: 0.0...0.15)))
+            }
+        case .flop:
+            startAct(.flop)
+        case .gift:
+            startAct(.gift)
+            for step in 0..<3 {
+                try? await Task.sleep(for: .milliseconds(250))
+                emit(.sparkle, origin: CGSize(width: Double(step - 1) * 0.12, height: -0.2),
+                     drift: CGSize(width: .random(in: -0.08...0.08), height: -0.2))
             }
         }
     }
