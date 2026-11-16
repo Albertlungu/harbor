@@ -48,6 +48,30 @@ struct ToolWidgetSettings: View {
         }
         .pickerStyle(.segmented)
         Toggle("Track happiness, hunger and energy", isOn: fields.bool("needs", false))
+        PetRoamSettings(fields: fields)
+    }
+}
+
+private struct PetRoamSettings: View {
+    let fields: WidgetFields
+
+    var body: some View {
+        let widget = fields.current
+        Section("Roaming") {
+            Picker("Default mode", selection: Binding(
+                get: { widget.roamMode },
+                set: { fields.setState("roamMode", .string($0.rawValue)) })) {
+                ForEach(RoamMode.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            Stepper("Size: \(Int(widget.roamSize)) pt", value: Binding(
+                get: { widget.roamSize },
+                set: { fields.setState("roamSize", .number($0)) }), in: 24...48, step: 2)
+            Toggle("Walk on window tops", isOn: fields.bool("roamWindows", true))
+            Picker("Allowed screens", selection: fields.string("roamScreens", "all")) {
+                Text("All screens").tag("all")
+                Text("The dock's own screen").tag("own")
+            }
+        }
     }
 }
 
