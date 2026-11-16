@@ -5,7 +5,7 @@ import Testing
 struct SystemLogicTests {
     @Test func cpuPercentFromDeltas() {
         let a = CPUTicks(user: 100, system: 50, idle: 850, nice: 0)
-        let b = CPUTicks(user: 160, system: 70, idle: 920, nice: 0)
+        let b = CPUTicks(user: 150, system: 70, idle: 920, nice: 0)
         #expect(SystemLogic.cpuPercent(previous: a, current: b) == 50)
     }
 
