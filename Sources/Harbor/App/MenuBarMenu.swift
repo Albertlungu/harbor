@@ -14,6 +14,7 @@ struct MenuBarMenu: View {
         Toggle("Window Previews", isOn: Binding(
             get: { model.store.settings.previews.enabled },
             set: { v in model.store.updateSettings { $0.previews.enabled = v } }))
+        MediaSubmenu()
         Divider()
 
         if model.store.docks.isEmpty {
@@ -34,6 +35,26 @@ struct MenuBarMenu: View {
         }
         Button("Quit Harbor") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+}
+
+private struct MediaSubmenu: View {
+    var body: some View {
+        let media = MediaControl.shared
+        let tracks = media.tracks()
+        Menu("Media") {
+            if tracks.isEmpty {
+                Text("Nothing Playing")
+            }
+            ForEach(tracks, id: \.player) { track in
+                Text(track.title)
+                Text(track.artist.isEmpty ? track.player.rawValue : "\(track.artist) - \(track.player.rawValue)")
+                Button(track.playing ? "Pause" : "Play") { media.togglePlayPause(track.player) }
+                Button("Next") { media.next(track.player) }
+                Button("Previous") { media.previous(track.player) }
+                Divider()
+            }
+        }
     }
 }
 
