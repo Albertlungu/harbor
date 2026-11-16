@@ -34,7 +34,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Harbor asks Finder to show and empty the Trash for the Trash widget.</string>
+	<string>Harbor asks Finder to empty the Trash, and Music or Spotify for the playback controls in its menu.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Harbor reads battery levels of connected Bluetooth accessories for the Bluetooth Battery widget.</string>
 </dict>
