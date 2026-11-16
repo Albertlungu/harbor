@@ -59,6 +59,7 @@ final class AppModel {
         applyPresentation()
         dockController.start()
         HotkeyCenter.shared.start(model: self)
+        AssistantBridge.shared.start(model: self)
         if store.settings.deepHideNativeDock { _ = nativeDock.deepHide() }
         if !store.settings.onboardingDone {
             windows.showOnboarding()
