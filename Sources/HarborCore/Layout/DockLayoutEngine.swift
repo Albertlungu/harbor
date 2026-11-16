@@ -60,7 +60,7 @@ public enum DockLayoutEngine {
             return clamp(rect, into: vf)
         }
 
-        let area = screen.pinnedArea
+        let area = dock.layout == .notch ? notchArea(position: position, screen: screen) : screen.pinnedArea
         let gap = CGFloat(dock.layout == .notch ? 0 : position.gap) + CGFloat(position.edgePadding)
         let endPad = CGFloat(position.endPadding)
         let edgeLength = orientation == .horizontal ? area.width : area.height
@@ -115,6 +115,64 @@ public enum DockLayoutEngine {
         case .top: return CGRect(x: bar.minX, y: area.maxY - d, width: bar.width, height: d)
         case .left: return CGRect(x: area.minX, y: bar.minY, width: d, height: bar.height)
         case .right: return CGRect(x: area.maxX - d, y: bar.minY, width: d, height: bar.height)
+        }
+    }
+
+    // MARK: Notch
+
+    public static let notchPillLength: CGFloat = 120
+    public static let notchPillDepth: CGFloat = 8
+
+    /// The area a notch bar attaches to. The top-center notch sits over the menu bar, flush to the screen top.
+    public static func notchArea(position: Position, screen: ScreenGeometry) -> CGRect {
+        position.edge == .top && position.alignment == .center ? screen.frame : screen.pinnedArea
+    }
+
+    /// The folded pill: centered on the bar along the edge, flush against the edge side.
+    public static func notchPillFrame(for bar: CGRect, edge: ScreenEdge) -> CGRect {
+        let long = min(notchPillLength, edge == .top || edge == .bottom ? bar.width : bar.height)
+        switch edge {
+        case .top: return CGRect(x: bar.midX - long / 2, y: bar.maxY - notchPillDepth, width: long, height: notchPillDepth)
+        case .bottom: return CGRect(x: bar.midX - long / 2, y: bar.minY, width: long, height: notchPillDepth)
+        case .left: return CGRect(x: bar.minX, y: bar.midY - long / 2, width: notchPillDepth, height: long)
+        case .right: return CGRect(x: bar.maxX - notchPillDepth, y: bar.midY - long / 2, width: notchPillDepth, height: long)
+        }
+    }
+
+    /// Where a notch in "hidden" idle mode rests: fully past its edge.
+    public static func notchHiddenFrame(for bar: CGRect, edge: ScreenEdge, area: CGRect) -> CGRect {
+        var r = bar
+        switch edge {
+        case .bottom: r.origin.y = area.minY - bar.height - 2
+        case .top: r.origin.y = area.maxY + 2
+        case .left: r.origin.x = area.minX - bar.width - 2
+        case .right: r.origin.x = area.maxX + 2
+        }
+        return r
+    }
+
+    /// The edge strip that reveals a hidden notch, limited to the bar's span.
+    public static func notchRevealZone(for bar: CGRect, edge: ScreenEdge, area: CGRect, distance: CGFloat) -> CGRect {
+        let d = max(distance, 1)
+        switch edge {
+        case .bottom: return CGRect(x: bar.minX, y: area.minY, width: bar.width, height: d)
+        case .top: return CGRect(x: bar.minX, y: area.maxY - d, width: bar.width, height: d)
+        case .left: return CGRect(x: area.minX, y: bar.minY, width: d, height: bar.height)
+        case .right: return CGRect(x: area.maxX - d, y: bar.minY, width: d, height: bar.height)
+        }
+    }
+
+    /// Which corners of a notch are rounded: only the ones facing into the screen.
+    public struct NotchCorners: Equatable, Sendable {
+        public var topLeft = false, topRight = false, bottomLeft = false, bottomRight = false
+    }
+
+    public static func notchCorners(edge: ScreenEdge) -> NotchCorners {
+        switch edge {
+        case .top: NotchCorners(bottomLeft: true, bottomRight: true)
+        case .bottom: NotchCorners(topLeft: true, topRight: true)
+        case .left: NotchCorners(topRight: true, bottomRight: true)
+        case .right: NotchCorners(topLeft: true, bottomLeft: true)
         }
     }
 

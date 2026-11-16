@@ -47,6 +47,64 @@ struct DockBackground: View {
     }
 }
 
+/// The notch bar: a shape attached to its edge, rounded only on the inward corners.
+struct NotchBar: View {
+    let style: DockStyle
+    let edge: ScreenEdge
+    let folded: Bool
+    let open: CGRect
+    let pill: CGRect
+    let editing: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        let rect = folded ? pill : open
+        let radius = folded ? min(4, pill.height / 2) : CGFloat(style.thickness * style.cornerStyle.fraction)
+        let c = DockLayoutEngine.notchCorners(edge: edge)
+        let shape = UnevenRoundedRectangle(topLeadingRadius: c.topLeft ? radius : 0,
+                                           bottomLeadingRadius: c.bottomLeft ? radius : 0,
+                                           bottomTrailingRadius: c.bottomRight ? radius : 0,
+                                           topTrailingRadius: c.topRight ? radius : 0,
+                                           style: .continuous)
+        fill(shape)
+            .overlay { if editing { shape.strokeBorder(Tokens.accent, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])) } }
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
+            .animation(reduceMotion ? nil : .easeInOut(duration: Tokens.Motion.base), value: folded)
+    }
+
+    @ViewBuilder
+    private func fill(_ shape: UnevenRoundedRectangle) -> some View {
+        let kind = reduceTransparency && (style.notch.background == .blur || style.notch.background == .glass)
+            ? NotchBar.Kind.black : NotchBar.Kind(style.notch.background)
+        switch kind {
+        case .black: shape.fill(Color.black)
+        case .color: shape.fill(style.notch.color.color)
+        case .blur:
+            shape.fill(.ultraThinMaterial).overlay(shape.fill(Color.black.opacity(style.blurDarkness * 0.8)))
+        case .glass:
+            if folded {
+                shape.fill(Color.black)
+            } else {
+                shape.fill(.clear).glassEffect(.regular, in: shape)
+            }
+        }
+    }
+
+    private enum Kind {
+        case black, color, blur, glass
+        init(_ b: HarborCore.NotchBackground) {
+            switch b {
+            case .black: self = .black
+            case .color: self = .color
+            case .blur: self = .blur
+            case .glass: self = .glass
+            }
+        }
+    }
+}
+
 struct LabelPill: View {
     let text: String
 

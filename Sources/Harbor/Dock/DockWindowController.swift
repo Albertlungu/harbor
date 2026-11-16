@@ -19,6 +19,9 @@ final class DockViewState {
     var hovering = false
     /// True while a popover from this dock is open; keeps auto-hide from firing.
     var menuOpen = false
+    /// Notch layout: folded into its pill, and where the pill sits in panel coordinates.
+    var notchFolded = false
+    var notchPillRect: CGRect = .zero
 
     init(dockID: UUID, screenID: String) {
         self.dockID = dockID
@@ -43,6 +46,11 @@ final class DockWindowController {
     private var enterDate: Date?
     private(set) var fullscreenHidden = false
     private var hotkeyRevealUntil: Date?
+    private var notchMoveTask: Task<Void, Never>?
+    private var lastNotchPlacement: [AnyHashable] = []
+    private var isEditing = false
+    private var notchEnter: Date?
+    private var notchLeave: Date?
 
     init(dock: Dock, screen: ConnectedScreen, model: AppModel) {
         self.dock = dock
@@ -50,17 +58,45 @@ final class DockWindowController {
         state = DockViewState(dockID: dock.id, screenID: screen.id)
         let root = DockRootView(state: state).environment(model)
         panel.contentView = FirstClickHostingView(rootView: root)
-        autoHidden = dock.behavior.autoHide
+        autoHidden = Self.hidesWhenIdle(dock)
+        state.notchFolded = Self.foldsWhenIdle(dock)
+    }
+
+    private var isNotch: Bool { dock.layout == .notch }
+
+    /// Auto-hide for dock layouts; notches use their idle mode instead.
+    private static func hidesWhenIdle(_ dock: Dock) -> Bool {
+        dock.layout == .notch ? dock.style.notch.idleMode == .hidden : dock.behavior.autoHide
+    }
+
+    private static func foldsWhenIdle(_ dock: Dock) -> Bool {
+        dock.layout == .notch && dock.style.notch.idleMode == .pill
+    }
+
+    private var revealDelay: Double { isNotch ? dock.style.notch.expandAfter : dock.behavior.revealDelay }
+    private var hideDelay: Double { isNotch ? dock.style.notch.foldAfter : dock.behavior.hideDelay }
+
+    private var notchArea: CGRect {
+        DockLayoutEngine.notchArea(position: ScreenResolver.position(for: dock, on: screen.id), screen: screen.geometry)
+    }
+
+    /// The screen-space region that currently responds to the pointer.
+    private var activeRect: CGRect {
+        guard isNotch, state.notchFolded else { return barFrame }
+        return DockLayoutEngine.notchPillFrame(for: barFrame, edge: state.hugEdge).insetBy(dx: -8, dy: -8)
     }
 
     var dockID: UUID { dock.id }
     var panelFrame: CGRect { panel.frame }
 
     func update(dock: Dock, screen: ConnectedScreen, slots: [DockSlot], settings: AppSettings, editing: Bool) {
-        let behaviorChanged = dock.behavior.autoHide != self.dock.behavior.autoHide
+        let behaviorChanged = Self.hidesWhenIdle(dock) != Self.hidesWhenIdle(self.dock)
+        let foldChanged = Self.foldsWhenIdle(dock) != Self.foldsWhenIdle(self.dock)
         self.dock = dock
         self.screen = screen
-        if behaviorChanged { autoHidden = dock.behavior.autoHide }
+        if behaviorChanged { autoHidden = Self.hidesWhenIdle(dock) }
+        if foldChanged { state.notchFolded = Self.foldsWhenIdle(dock) }
+        isEditing = editing
         if editing { autoHidden = false }
         state.slots = slots
 
@@ -94,8 +130,37 @@ final class DockWindowController {
         state.barRect = CGRect(x: barFrame.minX - frame.minX, y: frame.maxY - barFrame.maxY,
                                width: barFrame.width, height: barFrame.height)
 
+        let pill = DockLayoutEngine.notchPillFrame(for: barFrame, edge: hug)
+        state.notchPillRect = CGRect(x: pill.minX - frame.minX, y: frame.maxY - pill.maxY, width: pill.width, height: pill.height)
+
         applyWindowRules(position: position, settings: settings)
-        place(frame: frame, animated: false)
+        if isNotch {
+            if editing { state.notchFolded = false }
+            moveNotch(to: frame, position: position)
+        } else {
+            place(frame: frame, animated: false)
+        }
+    }
+
+    /// A notch that changes spot folds, moves while folded, then unfolds. Reduce Motion skips the dance.
+    private func moveNotch(to frame: CGRect, position: Position) {
+        let placement: [AnyHashable] = [position.edge, position.alignment, position.offsetAlongEdge, screen.id]
+        defer { lastNotchPlacement = placement }
+        let moved = !lastNotchPlacement.isEmpty && lastNotchPlacement != placement
+        guard moved, panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            place(frame: frame, animated: false)
+            return
+        }
+        notchMoveTask?.cancel()
+        state.notchFolded = true
+        notchMoveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Tokens.Motion.base + 0.05))
+            guard !Task.isCancelled, let self else { return }
+            self.place(frame: self.targetFrame, animated: false)
+            self.state.notchFolded = false
+            // Pill mode refolds on its own once the pointer is away.
+            self.notchLeave = Date()
+        }
     }
 
     private func applyWindowRules(position: Position, settings: AppSettings) {
@@ -122,7 +187,9 @@ final class DockWindowController {
         var final = frame
         if autoHidden && shown {
             if dock.position.mode == .pinned || dock.layout == .notch {
-                let hiddenBar = DockLayoutEngine.hiddenFrame(for: barFrame, edge: state.hugEdge, screen: screen.geometry)
+                let hiddenBar = isNotch
+                    ? DockLayoutEngine.notchHiddenFrame(for: barFrame, edge: state.hugEdge, area: notchArea)
+                    : DockLayoutEngine.hiddenFrame(for: barFrame, edge: state.hugEdge, screen: screen.geometry)
                 final = frame.offsetBy(dx: hiddenBar.minX - barFrame.minX, dy: hiddenBar.minY - barFrame.minY)
             }
         }
@@ -153,7 +220,7 @@ final class DockWindowController {
 
     /// Called on every pointer move with the global pointer location.
     func pointerMoved(to point: CGPoint, now: Date = Date()) {
-        let barHit = barFrame.insetBy(dx: -2, dy: -2).contains(point)
+        let barHit = activeRect.insetBy(dx: -2, dy: -2).contains(point)
         let panelHit = panel.frame.contains(point)
         let inside = barHit || (state.hovering && panelHit && !autoHidden)
 
@@ -165,29 +232,57 @@ final class DockWindowController {
         } else if state.pointer != nil {
             state.pointer = nil
         }
+        updateNotchFold(pointer: point, now: now)
         updateAutoHide(pointer: point, inside: inside, now: now)
     }
 
+    /// Pill idle mode: unfold after the pointer rests on the pill, refold once it has left the open notch.
+    private func updateNotchFold(pointer: CGPoint, now: Date) {
+        guard isNotch, dock.style.notch.idleMode == .pill, !isEditing else { return }
+        if state.notchFolded {
+            notchLeave = nil
+            if activeRect.contains(pointer) {
+                if notchEnter == nil { notchEnter = now }
+                if now.timeIntervalSince(notchEnter!) >= dock.style.notch.expandAfter {
+                    state.notchFolded = false
+                    notchEnter = nil
+                }
+            } else {
+                notchEnter = nil
+            }
+        } else {
+            notchEnter = nil
+            if barFrame.insetBy(dx: -4, dy: -4).contains(pointer) || state.menuOpen {
+                notchLeave = nil
+            } else {
+                if notchLeave == nil { notchLeave = now }
+                if now.timeIntervalSince(notchLeave!) >= dock.style.notch.foldAfter { state.notchFolded = true }
+            }
+        }
+    }
+
     private func updateAutoHide(pointer: CGPoint, inside: Bool, now: Date) {
-        guard dock.behavior.autoHide || dock.behavior.showAtEdgeWhileHidden || hotkeyRevealUntil != nil else { return }
+        guard Self.hidesWhenIdle(dock) || dock.behavior.showAtEdgeWhileHidden || hotkeyRevealUntil != nil else { return }
         if let until = hotkeyRevealUntil {
             if now < until || inside { return }
             hotkeyRevealUntil = nil
         }
-        guard dock.behavior.autoHide else { return }
+        guard Self.hidesWhenIdle(dock) else { return }
         if autoHidden {
             let reveal: Bool
             if dock.position.mode == .pinned || dock.layout == .notch {
-                let distance = dock.behavior.revealTrigger == .atEdge ? 2 : CGFloat(dock.behavior.revealDistance)
-                reveal = DockLayoutEngine.revealZone(for: barFrame, edge: state.hugEdge, screen: screen.geometry,
-                                                     distance: distance).contains(pointer)
+                let distance = dock.behavior.revealTrigger == .atEdge || isNotch ? 2 : CGFloat(dock.behavior.revealDistance)
+                let zone = isNotch
+                    ? DockLayoutEngine.notchRevealZone(for: barFrame, edge: state.hugEdge, area: notchArea, distance: distance)
+                    : DockLayoutEngine.revealZone(for: barFrame, edge: state.hugEdge, screen: screen.geometry, distance: distance)
+                reveal = zone.contains(pointer)
             } else {
                 reveal = barFrame.insetBy(dx: -CGFloat(dock.behavior.revealDistance),
                                           dy: -CGFloat(dock.behavior.revealDistance)).contains(pointer)
             }
             if reveal {
                 if enterDate == nil { enterDate = now }
-                if now.timeIntervalSince(enterDate!) >= dock.behavior.revealDelay {
+                if now.timeIntervalSince(enterDate!) >= revealDelay {
                     autoHidden = false
                     enterDate = nil
                     place(frame: targetFrame, animated: true)
@@ -201,7 +296,7 @@ final class DockWindowController {
                 leaveDate = nil
             } else {
                 if leaveDate == nil { leaveDate = now }
-                if now.timeIntervalSince(leaveDate!) >= dock.behavior.hideDelay {
+                if now.timeIntervalSince(leaveDate!) >= hideDelay {
                     autoHidden = true
                     leaveDate = nil
                     place(frame: targetFrame, animated: true)
