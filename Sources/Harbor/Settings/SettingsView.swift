@@ -85,7 +85,7 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
     @State private var loginError: String?
-    @State private var showingRestart = false
+    @State private var dockError: String?
 
     var body: some View {
         Form {
@@ -116,13 +116,18 @@ private struct GeneralSettings: View {
             }
 
             Section("macOS Dock") {
-                Toggle("Hide the macOS Dock while Harbor runs", isOn: Binding(
+                Toggle("Replace the macOS Dock", isOn: Binding(
                     get: { model.store.settings.deepHideNativeDock },
-                    set: { on in
-                        model.store.updateSettings { $0.deepHideNativeDock = on }
-                        showingRestart = true
-                    }))
-                Text("macOS can still show its Dock at the screen edge and in Mission Control. Moving it to an edge you don't use keeps it out of the way.")
+                    set: { dockError = model.setReplaceNativeDock($0) }))
+                Text("Hides the macOS Dock while Harbor is open and brings it back when you quit. If you have no dock yet, Harbor makes one from your current Dock.")
+                    .font(.caption).foregroundStyle(Tokens.textMuted)
+                if let dockError {
+                    HStack {
+                        Text(dockError).font(.caption).foregroundStyle(Tokens.danger)
+                        Button("Try Again") { self.dockError = model.setReplaceNativeDock(model.store.settings.deepHideNativeDock) }
+                    }
+                }
+                Text("macOS still shows its own Dock in Mission Control. Moving it to an edge you don't use keeps it out of the way there.")
                     .font(.caption).foregroundStyle(Tokens.textMuted)
                 Button("Open Desktop & Dock Settings") {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!)
@@ -141,14 +146,6 @@ private struct GeneralSettings: View {
                 LabeledContent("Version", value: Bundle.main.shortVersion)
                 Link("Release notes and updates", destination: URL(string: "https://github.com/Albertlungu/harbor/releases")!)
             }
-        }
-        .alert("Apply now?", isPresented: $showingRestart) {
-            Button("Apply Now") {
-                _ = model.store.settings.deepHideNativeDock ? model.nativeDock.deepHide() : model.nativeDock.restore()
-            }
-            Button("Later", role: .cancel) {}
-        } message: {
-            Text("The macOS Dock restarts to pick up the change. Your open apps aren't affected.")
         }
     }
 }

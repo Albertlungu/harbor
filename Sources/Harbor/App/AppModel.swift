@@ -60,7 +60,12 @@ final class AppModel {
         dockController.start()
         HotkeyCenter.shared.start(model: self)
         AssistantBridge.shared.start(model: self)
-        if store.settings.deepHideNativeDock { _ = nativeDock.deepHide() }
+        if store.settings.deepHideNativeDock {
+            _ = nativeDock.deepHide()
+        } else if nativeDock.isHiddenByHarbor {
+            // A previous session ended without restoring the macOS Dock.
+            _ = nativeDock.restore()
+        }
         if !store.settings.onboardingDone {
             windows.showOnboarding()
         } else if store.settings.showManagerOnLaunch || store.docks.isEmpty {
@@ -91,6 +96,24 @@ final class AppModel {
     func applyPresentation() {
         let policy: NSApplication.ActivationPolicy = store.settings.presentation == .menuBar ? .accessory : .regular
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+    }
+
+    /// Hides or restores the macOS Dock right away. Turning it on with no visible dock
+    /// first creates one from the macOS Dock's contents so the Mac is never left without one.
+    @discardableResult
+    func setReplaceNativeDock(_ on: Bool) -> String? {
+        if on && !store.docks.contains(where: { $0.enabled }) {
+            let dock = store.createDock(name: "Dock")
+            store.updateDock(dock.id) {
+                $0.position.mode = .pinned
+                $0.position.edge = .bottom
+            }
+            addNativeDockCopy(to: dock.id)
+            selectedDockID = dock.id
+        }
+        store.updateSettings { $0.deepHideNativeDock = on }
+        let ok = on ? nativeDock.deepHide() : nativeDock.restore()
+        return ok ? nil : "macOS didn't accept the change. Try again, or restart your Mac if it keeps failing."
     }
 
     func setLaunchAtLogin(_ on: Bool) -> String? {

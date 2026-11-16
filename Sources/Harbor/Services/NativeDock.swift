@@ -74,6 +74,9 @@ final class NativeDock {
             && restartDock()
     }
 
+    /// True when the macOS Dock is still hidden by an earlier session, e.g. after a crash.
+    var isHiddenByHarbor: Bool { UserDefaults.standard.dictionary(forKey: Self.savedKey) != nil }
+
     /// Restores what `deepHide` saved.
     func restore() -> Bool {
         guard let saved = UserDefaults.standard.dictionary(forKey: Self.savedKey) else { return true }

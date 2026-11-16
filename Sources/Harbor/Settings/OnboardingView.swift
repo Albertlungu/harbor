@@ -33,11 +33,9 @@ struct OnboardingView: View {
             Text("How do you want to start?").font(.headline)
             HStack(spacing: Tokens.Space.l) {
                 if model.nativeDock.isReadable {
-                    choice("Copy my Dock", detail: "A dock with the same apps and folders", symbol: "dock.rectangle") {
-                        let dock = model.store.createDock(name: "My Dock")
-                        model.store.updateDock(dock.id) { $0.position.mode = .pinned }
-                        model.addNativeDockCopy(to: dock.id)
-                        finish(selecting: dock.id)
+                    choice("Replace my Dock", detail: "Same apps and folders; the macOS Dock hides", symbol: "dock.rectangle") {
+                        model.setReplaceNativeDock(true)
+                        finish(selecting: model.selectedDockID)
                     }
                 }
                 choice("Empty dock", detail: "Start from scratch", symbol: "plus.rectangle") {
