@@ -54,7 +54,9 @@ enum DockSlot: Identifiable, Equatable {
 enum SlotBuilder {
     static func slots(for dock: Dock, running: RunningApps, nativeDock: NativeDock, settings: AppSettings) -> [DockSlot] {
         var result: [DockSlot] = []
-        let pinnedPaths = Set(dock.items.compactMap { $0.kind == .app ? $0.path.map(RunningApps.normalize) : nil })
+        var pinnedPaths = Set(dock.items.compactMap { $0.kind == .app ? $0.path.map(RunningApps.normalize) : nil })
+        // A Finder widget already stands for Finder, so app lists shouldn't show it again.
+        if dock.hasWidget(.finder) { pinnedPaths.insert("/System/Library/CoreServices/Finder.app") }
         let excluded = Set(settings.excludedApps)
         for item in dock.items where !item.hidden {
             switch item.widget?.kind {
