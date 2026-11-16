@@ -486,7 +486,7 @@ private struct BackupSettings: View {
         .confirmationDialog("Import this backup?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }),
                             presenting: pendingImport) { backup in
             Button("Import") {
-                try? model.file.snapshotCurrent(reason: .beforeImport)
+                _ = try? model.file.snapshotCurrent(reason: .beforeImport)
                 let result = model.store.importBackup(backup)
                 message = "Added \(result.added) and replaced \(result.replaced) docks."
             }
