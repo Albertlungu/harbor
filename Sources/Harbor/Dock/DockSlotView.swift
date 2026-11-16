@@ -302,7 +302,10 @@ struct EditDragModifier: ViewModifier {
     func body(content: Content) -> some View {
         if editing, case .item(let item) = slot {
             content
-                .onDrag { NSItemProvider(object: item.id.uuidString as NSString) }
+                .onDrag {
+                    DragOutTracker.shared.begin(item: item, dockID: dock.id, model: model)
+                    return NSItemProvider(object: item.id.uuidString as NSString)
+                }
                 .onDrop(of: [.plainText], isTargeted: nil) { providers in
                     guard let provider = providers.first else { return false }
                     _ = provider.loadObject(ofClass: NSString.self) { value, _ in
