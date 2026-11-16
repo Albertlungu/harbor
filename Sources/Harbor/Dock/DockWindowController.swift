@@ -52,6 +52,10 @@ final class DockWindowController {
     /// Faded out because another app's window overlaps the bar; returns after it has been clear a while.
     private(set) var windowHoverHidden = false
     private var windowClearSince: Date?
+    /// Temporarily shown at the screen edge although fullscreen or window hover would hide it.
+    private var edgeRevealed = false
+    private var edgeEnter: Date?
+    private var edgeLeave: Date?
     private var notchEnter: Date?
     private var notchLeave: Date?
 
@@ -186,7 +190,7 @@ final class DockWindowController {
 
     private func place(frame: CGRect, animated: Bool) {
         targetFrame = frame
-        let shown = !fullscreenHidden
+        let shown = !suppressedByFullscreen
         var final = frame
         if autoHidden && shown {
             if dock.position.mode == .pinned || dock.layout == .notch {
@@ -197,7 +201,7 @@ final class DockWindowController {
             }
         }
         let floatingHidden = autoHidden && dock.position.mode == .floating && dock.layout == .dock
-        let alpha: CGFloat = (floatingHidden || windowHoverHidden) ? 0 : 1
+        let alpha: CGFloat = (floatingHidden || (windowHoverHidden && !edgeRevealed)) ? 0 : 1
         if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = Tokens.Motion.reveal
@@ -229,13 +233,14 @@ final class DockWindowController {
         let inside = barHit || (state.hovering && panelHit && !autoHidden)
 
         if inside != state.hovering { state.hovering = inside }
-        panel.ignoresMouseEvents = windowHoverHidden || !(barHit || (state.hovering && panelHit))
+        panel.ignoresMouseEvents = (windowHoverHidden && !edgeRevealed) || !(barHit || (state.hovering && panelHit))
         if inside {
             let local = CGPoint(x: point.x - panel.frame.minX, y: panel.frame.maxY - point.y)
             state.pointer = state.isHorizontal ? local.x : local.y
         } else if state.pointer != nil {
             state.pointer = nil
         }
+        updateEdgeReveal(pointer: point, now: now)
         updateNotchFold(pointer: point, now: now)
         updateAutoHide(pointer: point, inside: inside, now: now)
     }
@@ -314,6 +319,44 @@ final class DockWindowController {
         autoHidden = false
         hotkeyRevealUntil = Date().addingTimeInterval(duration > 0 ? duration : 1)
         place(frame: targetFrame, animated: true)
+    }
+
+    private var suppressedByFullscreen: Bool { fullscreenHidden && !edgeRevealed }
+
+    /// "Show at screen edge while hidden": a pointer resting at the edge zone brings the dock back until it leaves.
+    private func updateEdgeReveal(pointer: CGPoint, now: Date) {
+        guard dock.behavior.showAtEdgeWhileHidden, dock.position.mode == .pinned, !isNotch,
+              fullscreenHidden || windowHoverHidden else {
+            if edgeRevealed { edgeRevealed = false; place(frame: targetFrame, animated: true) }
+            edgeEnter = nil
+            edgeLeave = nil
+            return
+        }
+        if edgeRevealed {
+            if barFrame.insetBy(dx: -8, dy: -8).contains(pointer) || state.menuOpen {
+                edgeLeave = nil
+            } else {
+                if edgeLeave == nil { edgeLeave = now }
+                if now.timeIntervalSince(edgeLeave!) >= dock.behavior.hideDelay {
+                    edgeRevealed = false
+                    edgeLeave = nil
+                    place(frame: targetFrame, animated: true)
+                }
+            }
+        } else {
+            let zone = DockLayoutEngine.revealZone(for: barFrame, edge: state.hugEdge, screen: screen.geometry, distance: 2)
+            if zone.contains(pointer) {
+                if edgeEnter == nil { edgeEnter = now }
+                if now.timeIntervalSince(edgeEnter!) >= dock.behavior.revealDelay {
+                    edgeRevealed = true
+                    edgeEnter = nil
+                    edgeLeave = nil
+                    place(frame: targetFrame, animated: true)
+                }
+            } else {
+                edgeEnter = nil
+            }
+        }
     }
 
     /// `overlapping` is whether another app's window currently intersects the bar.
