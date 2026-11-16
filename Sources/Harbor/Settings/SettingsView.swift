@@ -4,11 +4,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, behavior, newDocks, icons, previews, permissions, backup, integrations, diagnostics
+    case personality, general, behavior, newDocks, icons, previews, permissions, backup, integrations, diagnostics
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .personality: "Personality"
         case .general: "General"
         case .behavior: "Behavior"
         case .newDocks: "New Docks"
@@ -23,6 +24,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .personality: "sparkles"
         case .general: "gearshape"
         case .behavior: "cursorarrow.click"
         case .newDocks: "plus.rectangle.on.rectangle"
@@ -37,7 +39,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
     var group: String {
         switch self {
-        case .general, .behavior: "App"
+        case .personality, .general, .behavior: "App"
         case .newDocks, .icons: "Personalize"
         case .previews: "Features"
         case .permissions, .backup, .integrations: "System"
@@ -67,6 +69,7 @@ struct SettingsView: View {
         } detail: {
             FillAvailable {
                 switch page {
+                case .personality: PersonalitySettings()
                 case .general: GeneralSettings()
                 case .behavior: BehaviorSettings()
                 case .newDocks: NewDockSettings()
@@ -212,15 +215,6 @@ private struct BehaviorSettings: View {
                         Button("Add App…") { if let p = AppPicker.pick() { model.store.updateSettings { $0.excludedApps.append(p) } } }
                     }
                 }
-            }
-            Section("Feel") {
-                Toggle("Animate when opening", isOn: model.setting(\.openAnimation))
-                OpenEffectPicker()
-                Toggle("Play a sound", isOn: model.setting(\.openSound))
-                if model.store.settings.openSound {
-                    Slider(value: model.setting(\.openSoundVolume), in: 0...1) { Text("Volume") }
-                }
-                Text("The sound always matches the animation you choose.").font(.caption).foregroundStyle(Tokens.textMuted)
             }
             Section("Gestures") {
                 Toggle("Modifier clicks", isOn: model.setting(\.clickGestures))
