@@ -224,6 +224,7 @@ struct DockSlotView: View {
 
 struct AppIcon: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dockEdge) private var edge
     let path: String
     let image: NSImage
     let iconSize: CGFloat
@@ -236,12 +237,12 @@ struct AppIcon: View {
             .interpolation(.high)
             .frame(width: iconSize, height: iconSize)
             .modifier(TintModifier(style: dock.style))
-            .overlay(alignment: .bottom) {
+            .overlay(alignment: indicatorAlignment) {
                 if running != nil && model.store.settings.showRunningIndicators {
                     Circle()
                         .fill(model.store.settings.indicatorColor?.color ?? Tokens.indicator)
                         .frame(width: Tokens.Dock.indicatorSize, height: Tokens.Dock.indicatorSize)
-                        .offset(y: Tokens.Dock.indicatorSize + 2)
+                        .offset(indicatorOffset)
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -275,6 +276,40 @@ struct BadgePill: View {
             .frame(minWidth: height, minHeight: height)
             .background(Tokens.badge, in: Capsule())
             .accessibilityLabel("\(text) notifications")
+    }
+}
+
+extension AppIcon {
+    /// The running dot sits between the icon and the screen edge the dock hugs.
+    var indicatorAlignment: Alignment {
+        switch edge {
+        case .bottom: .bottom
+        case .top: .top
+        case .left: .leading
+        case .right: .trailing
+        }
+    }
+
+    var indicatorOffset: CGSize {
+        let d = Tokens.Dock.indicatorSize + 2
+        switch edge {
+        case .bottom: return CGSize(width: 0, height: d)
+        case .top: return CGSize(width: 0, height: -d)
+        case .left: return CGSize(width: -d, height: 0)
+        case .right: return CGSize(width: d, height: 0)
+        }
+    }
+}
+
+// A plain key rather than @Entry: the Command Line Tools ship without SwiftUI's macro plugin.
+private struct DockEdgeKey: EnvironmentKey {
+    static let defaultValue: ScreenEdge = .bottom
+}
+
+extension EnvironmentValues {
+    var dockEdge: ScreenEdge {
+        get { self[DockEdgeKey.self] }
+        set { self[DockEdgeKey.self] = newValue }
     }
 }
 

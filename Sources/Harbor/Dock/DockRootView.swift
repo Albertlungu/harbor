@@ -10,6 +10,7 @@ struct DockRootView: View {
     var body: some View {
         if let dock = model.store.dock(state.dockID) {
             DockBarLayout(dock: dock, state: state, editing: model.store.editing.contains(dock.id))
+                .environment(\.dockEdge, state.hugEdge)
         }
     }
 }

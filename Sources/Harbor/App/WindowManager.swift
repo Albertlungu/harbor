@@ -16,6 +16,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
             manager = makeWindow(title: "Harbor", size: NSSize(width: 860, height: 600),
                                  content: ManagerView().environment(model), autosave: "Manager")
             manager?.minSize = NSSize(width: 720, height: 460)
+            // The dock name field in the toolbar already says what this window is.
+            manager?.titleVisibility = .hidden
         }
         present(manager)
     }
