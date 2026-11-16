@@ -87,7 +87,9 @@ struct WidgetContextItems: View {
             SystemWidgetMenu(item: item, dock: dock)
         case .finder?, .link?, .folderStack?, .appStack?, .shelf?, .fileShelf?, .trash?:
             StorageWidgetMenu(item: item, dock: dock)
-        case .clicker?, .timer?, .metronome?, .pet?, .spaceAwareness?:
+        case .pet?:
+            PetContextItems(item: item, dock: dock)
+        case .clicker?, .timer?, .metronome?, .spaceAwareness?:
             ToolWidgetMenu(item: item, dock: dock)
         default:
             EmptyView()
