@@ -43,15 +43,19 @@ struct SpaceIndicatorWidget: View {
                     .foregroundStyle(Tokens.text)
                     .padding(.horizontal, unit * 0.08)
             } else {
+                // Dots shrink to fit the widget's length so many desktops never overflow the bar.
+                let along = (state.isHorizontal ? size.width : size.height) * 0.85
+                let count = CGFloat(max(spaces.total, 1))
+                let dot = min(unit * 0.14, along / (count * 1.7))
                 let dots = ForEach(1...max(spaces.total, 1), id: \.self) { index in
                     Circle()
                         .fill(index == spaces.current ? Tokens.text : Tokens.textMuted.opacity(0.35))
-                        .frame(width: unit * 0.14, height: unit * 0.14)
+                        .frame(width: dot, height: dot)
                 }
                 if state.isHorizontal {
-                    HStack(spacing: unit * 0.1) { dots }
+                    HStack(spacing: dot * 0.7) { dots }
                 } else {
-                    VStack(spacing: unit * 0.1) { dots }
+                    VStack(spacing: dot * 0.7) { dots }
                 }
             }
         } else {
