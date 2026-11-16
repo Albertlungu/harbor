@@ -11,6 +11,8 @@ struct DockRootView: View {
         if let dock = model.store.dock(state.dockID) {
             DockBarLayout(dock: dock, state: state, editing: model.store.editing.contains(dock.id))
                 .environment(\.dockEdge, state.hugEdge)
+                .offset(state.hideOffset)
+                .opacity(state.contentOpacity)
         }
     }
 }
@@ -31,7 +33,9 @@ struct DockBarLayout: View {
     private var horizontal: Bool { state.isHorizontal }
     private var icon: CGFloat { CGFloat(dock.style.iconSize) }
     private var spacing: CGFloat { CGFloat(dock.style.spacing.points) }
-    private var collapsed: Bool { dock.style.collapse.enabled && dock.style.collapse.collapsed }
+    /// Collapse belongs to the plain bar; notch docks fold on their own.
+    private var collapsible: Bool { dock.style.collapse.enabled && dock.layout == .dock }
+    private var collapsed: Bool { collapsible && dock.style.collapse.collapsed }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var notchFolded: Bool { dock.layout == .notch && state.notchFolded }
     private var floating: Bool { dock.position.mode == .floating && dock.layout == .dock }
@@ -65,7 +69,7 @@ struct DockBarLayout: View {
                     .allowsHitTesting(false)
             }
 
-            if dock.style.collapse.enabled {
+            if collapsible {
                 CollapseButton(dock: dock, horizontal: horizontal, collapsed: collapsed,
                                thickness: CGFloat(dock.style.thickness))
                     .frame(width: collapseSize.width, height: collapseSize.height)

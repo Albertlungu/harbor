@@ -225,7 +225,7 @@ struct EffectsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { context in
             Canvas { ctx, size in
                 let t = context.date.timeIntervalSinceReferenceDate
                 if effects.contains(.rays) { drawRays(ctx, size: size, t: t) }

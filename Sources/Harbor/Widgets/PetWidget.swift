@@ -68,7 +68,7 @@ struct PetWidget: View {
     var body: some View {
         let unit = Tokens.Tool.unit(size)
         let needs = PetStore.stored(widget)
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let bob = reduceMotion ? 0 : sin(t * 1.8) * unit * 0.02
             ZStack {

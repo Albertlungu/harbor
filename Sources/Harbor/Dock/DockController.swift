@@ -40,12 +40,12 @@ final class DockController {
             observers.append(ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.reconcile()
-                    self?.checkFullscreen()
+                    self?.refreshWindowState()
                 }
             })
         }
         observers.append(ws.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkFullscreen() }
+            MainActor.assumeIsolated { self?.refreshWindowState() }
         })
 
         let handler: (NSEvent) -> Void = { [weak self] _ in
@@ -60,8 +60,7 @@ final class DockController {
         fullscreenTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.pointerMoved()
-                self?.checkFullscreen()
-                self?.checkWindowHover()
+                self?.refreshWindowState()
             }
         }
     }
@@ -161,73 +160,82 @@ final class DockController {
         for controller in windows.values { controller.pointerMoved(to: point) }
     }
 
-    private func checkWindowHover() {
-        let watching = windows.values.filter { model.store.dock($0.dockID)?.behavior.hideOnWindowHover == true }
-        // Skip the window list entirely when no dock asks for it, and let any stale fade clear.
-        guard !watching.isEmpty else {
-            for controller in windows.values where controller.windowHoverHidden { controller.updateWindowHover(overlapping: false) }
+    private var snapshotInFlight = false
+
+    /// Fullscreen and covered-window checks share one window-list snapshot taken off the
+    /// main thread: the list call occasionally takes tens of milliseconds, which stalled
+    /// animations when it ran on the main thread several times a second.
+    private func refreshWindowState() {
+        guard !snapshotInFlight else { return }
+        let docks = model.store.docks
+        let needFullscreen = docks.contains { $0.behavior.hideInFullscreen }
+        let needHover = docks.contains { $0.behavior.hideOnWindowHover }
+        guard needFullscreen || needHover else {
+            apply(WindowSnapshot.Result(fullscreen: [], others: []))
             return
         }
-        let frames = OtherAppWindows.frames()
-        for controller in watching {
-            let bar = controller.barFrame
-            controller.updateWindowHover(overlapping: frames.contains { $0.intersects(bar) })
+        let front = NSWorkspace.shared.frontmostApplication
+        let frontPID = front?.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : front?.processIdentifier
+        let screens = NSScreen.screens.map(\.frame)
+        let own = ProcessInfo.processInfo.processIdentifier
+        snapshotInFlight = true
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                WindowSnapshot.take(frontPID: frontPID, ownPID: own, screens: screens, includeOthers: needHover)
+            }.value
+            self?.snapshotInFlight = false
+            self?.apply(result)
         }
     }
 
-    private func checkFullscreen() {
-        let fullscreenFrames = FullscreenDetector.fullscreenScreenFrames()
+    private func apply(_ snapshot: WindowSnapshot.Result) {
         for controller in windows.values {
             guard let dock = model.store.dock(controller.dockID) else { continue }
             let hide = dock.behavior.hideInFullscreen
-                && fullscreenFrames.contains { $0.intersects(controller.screen.geometry.frame.insetBy(dx: 1, dy: 1)) }
+                && snapshot.fullscreen.contains { $0.intersects(controller.screen.geometry.frame.insetBy(dx: 1, dy: 1)) }
             controller.setFullscreenHidden(hide)
+            if dock.behavior.hideOnWindowHover {
+                let bar = controller.barFrame
+                controller.updateWindowHover(overlapping: snapshot.others.contains { $0.intersects(bar) })
+            } else if controller.windowHoverHidden {
+                controller.updateWindowHover(overlapping: false)
+            }
         }
         updateReserve()
     }
 }
 
-/// Finds screens where the frontmost app has a window covering the whole display,
-/// menu bar included, which is how fullscreen windows look to the window server.
-@MainActor
-enum FullscreenDetector {
-    static func fullscreenScreenFrames() -> [CGRect] {
-        guard let front = NSWorkspace.shared.frontmostApplication,
-              front.bundleIdentifier != Bundle.main.bundleIdentifier,
-              let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]],
-              let primaryHeight = NSScreen.screens.first?.frame.maxY else { return [] }
-        var result: [CGRect] = []
+/// One read of the window server's on-screen list, safe to run off the main thread.
+enum WindowSnapshot {
+    struct Result: Sendable {
+        /// Screens where the frontmost app has a window covering the whole display.
+        var fullscreen: [CGRect]
+        /// Standard-layer windows of other apps, in AppKit coordinates.
+        var others: [CGRect]
+    }
+
+    static func take(frontPID: pid_t?, ownPID: pid_t, screens: [CGRect], includeOthers: Bool) -> Result {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]], let primaryHeight = screens.first?.maxY else { return Result(fullscreen: [], others: []) }
+        var fullscreen: [CGRect] = []
+        var others: [CGRect] = []
         for window in info {
-            guard (window[kCGWindowOwnerPID as String] as? pid_t) == front.processIdentifier,
-                  (window[kCGWindowLayer as String] as? Int) == 0,
-                  let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
-            let appKit = CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
-            for screen in NSScreen.screens where abs(appKit.width - screen.frame.width) < 1
-                && abs(appKit.height - screen.frame.height) < 1 && appKit.intersects(screen.frame) {
-                result.append(screen.frame)
+            guard (window[kCGWindowLayer as String] as? Int) == 0,
+                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { continue }
+            let pid = window[kCGWindowOwnerPID as String] as? pid_t
+            let frame = CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
+            if let frontPID, pid == frontPID {
+                // Fullscreen windows cover the whole display, menu bar included.
+                for screen in screens where abs(frame.width - screen.width) < 1
+                    && abs(frame.height - screen.height) < 1 && frame.intersects(screen) {
+                    fullscreen.append(screen)
+                }
+            }
+            if includeOthers, pid != ownPID, (window[kCGWindowAlpha as String] as? Double ?? 1) > 0 {
+                others.append(frame)
             }
         }
-        return result
-    }
-}
-
-/// On-screen standard-layer windows of other apps, in AppKit coordinates.
-@MainActor
-enum OtherAppWindows {
-    static func frames() -> [CGRect] {
-        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]],
-              let primaryHeight = NSScreen.screens.first?.frame.maxY else { return [] }
-        let own = ProcessInfo.processInfo.processIdentifier
-        return info.compactMap { window in
-            guard (window[kCGWindowOwnerPID as String] as? pid_t) != own,
-                  (window[kCGWindowLayer as String] as? Int) == 0,
-                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
-                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: dict) else { return nil }
-            return CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
-        }
+        return Result(fullscreen: fullscreen, others: others)
     }
 }

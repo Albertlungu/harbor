@@ -17,6 +17,10 @@ final class DockViewState {
     /// Pointer position along the dock axis in panel coordinates, while hovering the bar.
     var pointer: CGFloat?
     var hovering = false
+    /// Slide applied to the whole dock while auto-hidden; the window itself stays put.
+    var hideOffset: CGSize = .zero
+    /// Fade applied while hidden as a floating dock or under another window.
+    var contentOpacity: Double = 1
     /// True while a popover from this dock is open; keeps auto-hide from firing.
     var menuOpen = false
     /// The slot under the pointer, for gestures handled outside SwiftUI.
@@ -93,7 +97,7 @@ final class DockWindowController {
     private var activeRect: CGRect {
         guard isNotch, state.notchFolded else {
             // The collapse button sits just outside the bar's start, so it counts as part of the dock.
-            guard dock.style.collapse.enabled, !dock.style.collapse.collapsed else { return barFrame }
+            guard dock.style.collapse.enabled, dock.layout == .dock, !dock.style.collapse.collapsed else { return barFrame }
             let reach = DockMetrics.collapseReach
             return state.isHorizontal
                 ? CGRect(x: barFrame.minX - reach, y: barFrame.minY, width: barFrame.width + reach, height: barFrame.height)
@@ -124,7 +128,7 @@ final class DockWindowController {
         // The panel is sized for the expanded bar even while collapsed, so collapsing and
         // expanding animate inside one window instead of snapping the window's frame.
         let expandedBar = DockLayoutEngine.barFrame(dock: dock, position: position, slotLengths: lengths, screen: screen.geometry)
-        let collapsed = dock.style.collapse.enabled && dock.style.collapse.collapsed
+        let collapsed = dock.style.collapse.enabled && dock.layout == .dock && dock.style.collapse.collapsed
         barFrame = collapsed ? Self.collapsedBar(expandedBar, dock: dock) : expandedBar
 
         let hug: ScreenEdge
@@ -135,7 +139,7 @@ final class DockWindowController {
         let magnify = dock.style.magnify && dock.layout == .dock
         let grow = magnify ? iconSize * CGFloat(dock.style.maxScale - 1) : 0
         let across = grow + Tokens.Dock.labelHeadroom
-        let along = grow * CGFloat(dock.style.falloff) + 12 + (dock.style.collapse.enabled ? DockMetrics.collapseReach : 0)
+        let along = grow * CGFloat(dock.style.falloff) + 12 + (dock.style.collapse.enabled && dock.layout == .dock ? DockMetrics.collapseReach : 0)
         var frame = expandedBar
         switch hug {
         case .bottom: frame = CGRect(x: frame.minX - along, y: frame.minY, width: frame.width + along * 2, height: frame.height + across)
@@ -248,26 +252,29 @@ final class DockWindowController {
     private func place(frame: CGRect, animated: Bool) {
         targetFrame = frame
         let shown = !suppressedByFullscreen
-        var final = frame
-        if autoHidden && shown {
-            if dock.position.mode == .pinned || dock.layout == .notch {
-                let hiddenBar = isNotch
-                    ? DockLayoutEngine.notchHiddenFrame(for: barFrame, edge: state.hugEdge, area: notchArea)
-                    : DockLayoutEngine.hiddenFrame(for: barFrame, edge: state.hugEdge, screen: screen.geometry)
-                final = frame.offsetBy(dx: hiddenBar.minX - barFrame.minX, dy: hiddenBar.minY - barFrame.minY)
-            }
+        var offset = CGSize.zero
+        if autoHidden && shown && (dock.position.mode == .pinned || dock.layout == .notch) {
+            let hiddenBar = isNotch
+                ? DockLayoutEngine.notchHiddenFrame(for: barFrame, edge: state.hugEdge, area: notchArea)
+                : DockLayoutEngine.hiddenFrame(for: barFrame, edge: state.hugEdge, screen: screen.geometry)
+            // AppKit's y axis points up and SwiftUI's points down.
+            offset = CGSize(width: hiddenBar.minX - barFrame.minX, height: barFrame.minY - hiddenBar.minY)
         }
         let floatingHidden = autoHidden && dock.position.mode == .floating && dock.layout == .dock
-        let alpha: CGFloat = (floatingHidden || (windowHoverHidden && !edgeRevealed)) ? 0 : 1
+        let opacity: Double = (floatingHidden || (windowHoverHidden && !edgeRevealed)) ? 0 : 1
+
+        // The window keeps its frame and only the content slides or fades, on the GPU.
+        // Animating the window frame relaid the SwiftUI content every step and ran choppy.
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        panel.alphaValue = 1
+        let changes = { [state] in
+            state.hideOffset = offset
+            state.contentOpacity = opacity
+        }
         if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = Tokens.Motion.reveal
-                panel.animator().setFrame(final, display: true)
-                panel.animator().alphaValue = alpha
-            }
+            withAnimation(.smooth(duration: 0.26), changes)
         } else {
-            panel.setFrame(final, display: true)
-            panel.alphaValue = alpha
+            changes()
         }
         if shown {
             if !panel.isVisible { panel.orderFrontRegardless() }
@@ -291,7 +298,9 @@ final class DockWindowController {
         let inside = barHit || (state.hovering && panelHit && !autoHidden)
 
         if inside != state.hovering { state.hovering = inside }
-        panel.ignoresMouseEvents = (windowHoverHidden && !edgeRevealed) || !(barHit || (state.hovering && panelHit))
+        // Only touch the window when the value changes; setting it reaches the window server on every mouse move.
+        let ignore = (windowHoverHidden && !edgeRevealed) || !(barHit || (state.hovering && panelHit))
+        if panel.ignoresMouseEvents != ignore { panel.ignoresMouseEvents = ignore }
         if inside {
             let local = CGPoint(x: point.x - panel.frame.minX, y: panel.frame.maxY - point.y)
             state.pointer = state.isHorizontal ? local.x : local.y

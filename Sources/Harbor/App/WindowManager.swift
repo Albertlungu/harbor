@@ -52,7 +52,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
                               backing: .buffered, defer: false)
         window.title = title
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: content)
+        let host = NSHostingController(rootView: content)
+        // Only honor the content's minimum size. Following its ideal size made the window
+        // grow to the full screen height and jump back whenever it was moved.
+        host.sizingOptions = [.minSize]
+        window.contentViewController = host
         window.setContentSize(size)
         window.delegate = self
         if let autosave { window.setFrameAutosaveName(autosave) }
