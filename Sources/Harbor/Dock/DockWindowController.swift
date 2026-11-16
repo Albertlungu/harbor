@@ -196,6 +196,10 @@ final class DockWindowController {
                                               screen: screen.geometry)
     }
 
+    static var popoverOnScreen: Bool {
+        NSApp.windows.contains { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
+    }
+
     /// A square the size of the bar's thickness, at the end the collapse button lives on.
     static func collapsedBar(_ bar: CGRect, dock: Dock) -> CGRect {
         let horizontal = bar.width >= bar.height
@@ -375,6 +379,9 @@ final class DockWindowController {
                                               distance: CGFloat(dock.position.gap) + 10)
                 : .null
             let near = inside || barFrame.insetBy(dx: -8, dy: -8).contains(pointer) || edgeStrip.contains(pointer)
+            // A popover keeps the dock up only while one is really on screen; the flag alone could
+            // stay set if the item that opened it was redrawn, leaving the dock up for good.
+            if state.menuOpen && !Self.popoverOnScreen { state.menuOpen = false }
             if near || state.menuOpen {
                 leaveDate = nil
             } else {
