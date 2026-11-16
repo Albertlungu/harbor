@@ -8,6 +8,11 @@ struct MenuBarMenu: View {
 
     var body: some View {
         Button("Open Harbor") { model.windows.showManager() }
+        // The quickest way back to the macOS Dock, and to hide it again.
+        Toggle("Hide macOS Dock", isOn: Binding(
+            get: { model.store.settings.deepHideNativeDock },
+            set: { model.setReplaceNativeDock($0) }))
+        Divider()
         Button("Settings…") { model.windows.showSettings() }
             .keyboardShortcut(",")
         Button("New Dock") { model.newDock() }

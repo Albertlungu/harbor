@@ -59,7 +59,7 @@ final class NativeDock {
 
     private static let savedKey = "nativeDockSaved"
 
-    /// Pushes the native Dock off screen with an extreme auto-hide delay, saving prior values.
+    /// Pushes the native Dock out of the way with a 9999-second auto-hide delay, saving prior values.
     func deepHide() -> Bool {
         let defaults = UserDefaults.standard
         if defaults.dictionary(forKey: Self.savedKey) == nil {
@@ -70,7 +70,7 @@ final class NativeDock {
             defaults.set(saved, forKey: Self.savedKey)
         }
         return run(["write", "com.apple.dock", "autohide", "-bool", "true"])
-            && run(["write", "com.apple.dock", "autohide-delay", "-float", "1000"])
+            && run(["write", "com.apple.dock", "autohide-delay", "-float", "9999"])
             && restartDock()
     }
 
