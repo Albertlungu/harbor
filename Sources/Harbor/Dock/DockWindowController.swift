@@ -19,6 +19,8 @@ final class DockViewState {
     var hovering = false
     /// True while a popover from this dock is open; keeps auto-hide from firing.
     var menuOpen = false
+    /// The slot under the pointer, for gestures handled outside SwiftUI.
+    var hoveredSlotID: String?
     /// Notch layout: folded into its pill, and where the pill sits in panel coordinates.
     var notchFolded = false
     var notchPillRect: CGRect = .zero

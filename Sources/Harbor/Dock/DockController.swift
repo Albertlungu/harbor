@@ -14,15 +14,18 @@ final class DockController {
     let previews: WindowPreviewController
     private let reserve = ReserveSpace()
     let badges = Badges()
+    private let gestures: GestureMonitor
 
     init(model: AppModel) {
         self.model = model
         previews = WindowPreviewController(model: model)
+        gestures = GestureMonitor(model: model)
     }
 
     func start() {
         noteScreens()
         observeModel()
+        gestures.start()
         reconcile()
 
         let nc = NotificationCenter.default

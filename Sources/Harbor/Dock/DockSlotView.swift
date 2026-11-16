@@ -120,14 +120,14 @@ struct DockSlotView: View {
     // MARK: Actions
 
     /// The app this slot launches, if it is one.
-    private var appPath: String? {
-        switch slot {
-        case .app(_, let path, _, let spacer): spacer ? nil : path
-        case .item(let item): item.kind == .app ? item.path : nil
-        }
-    }
+    private var appPath: String? { slot.appPath }
 
     private func previewHover(_ isHovered: Bool) {
+        if isHovered {
+            state.hoveredSlotID = slot.id
+        } else if state.hoveredSlotID == slot.id {
+            state.hoveredSlotID = nil
+        }
         guard !editing, let path = appPath else { return }
         let previews = model.dockController.previews
         if isHovered {
@@ -140,6 +140,10 @@ struct DockSlotView: View {
 
     private func tap() {
         guard !editing else { return }
+        if let modifier = DockGestures.modifier(for: NSEvent.modifierFlags),
+           DockGestures.click(modifier, slot: slot, settings: model.store.settings, running: model.running) {
+            return
+        }
         switch slot {
         case .app(_, let path, _, let spacer):
             guard !spacer else { return }
