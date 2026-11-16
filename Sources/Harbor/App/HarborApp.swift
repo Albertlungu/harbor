@@ -37,7 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor lazy var model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        MainActor.assumeIsolated { model.start() }
+        MainActor.assumeIsolated {
+            if DevRender.runIfRequested() { NSApp.terminate(nil); return }
+            model.start()
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
