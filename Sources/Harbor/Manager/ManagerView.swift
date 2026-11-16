@@ -34,12 +34,13 @@ private struct EmptyManager: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        let line = Copy.noDocks(model.playful)
         ContentUnavailableView {
-            Label("No docks yet", systemImage: "dock.rectangle")
+            Label(line.title, systemImage: "dock.rectangle")
         } description: {
-            Text("A dock holds the apps, folders and widgets you want close at hand, on any edge of any screen.")
+            Text(line.detail)
         } actions: {
-            Button("Create Dock") { model.newDock() }
+            Button(Copy.createDock(model.playful)) { model.newDock() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
         }
@@ -210,7 +211,7 @@ struct ManagerBanners: View {
                        action: "Done") { model.store.setEditing(dock.id, false) }
             }
             if let error = model.store.lastSaveError {
-                Banner(kind: .error, text: "Changes couldn't be saved: \(error). Harbor will keep trying.", action: nil) {}
+                Banner(kind: .error, text: Copy.saveFailed(error, model.playful), action: nil) {}
             }
             if model.store.recoveredFromDamage {
                 Banner(kind: .warning, text: "Your settings file was damaged, so Harbor loaded the latest backup.",

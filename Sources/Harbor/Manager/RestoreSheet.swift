@@ -16,8 +16,8 @@ struct RestoreSheet: View {
             Text("Harbor saves a copy of your docks before the first change each day, before imports and before restores.")
                 .font(.callout).foregroundStyle(Tokens.textMuted)
             if snapshots.isEmpty {
-                ContentUnavailableView("No backups yet", systemImage: "clock.arrow.circlepath",
-                                       description: Text("One appears after your first change tomorrow."))
+                let line = Copy.noBackups(model.playful)
+                ContentUnavailableView(line.title, systemImage: "clock.arrow.circlepath", description: Text(line.detail))
             } else {
                 List(snapshots) { snapshot in
                     HStack {
@@ -39,13 +39,13 @@ struct RestoreSheet: View {
         .padding(Tokens.Space.xl)
         .frame(width: 460, height: 420)
         .onAppear { snapshots = model.file.snapshots() }
-        .confirmationDialog("Replace your current docks?", isPresented: Binding(
+        .confirmationDialog(Copy.restoreConfirm(model.playful).title, isPresented: Binding(
             get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending
         ) { snapshot in
             Button("Replace") { restore(snapshot) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("Your current setup is saved first, so you can undo this from the same list.")
+            Text(Copy.restoreConfirm(model.playful).detail)
         }
     }
 

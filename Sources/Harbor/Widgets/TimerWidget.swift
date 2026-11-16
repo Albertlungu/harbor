@@ -53,7 +53,7 @@ struct TimerWidget: View {
             .frame(width: size.width, height: size.height)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Timer")
-            .accessibilityValue(finished ? "Finished" : (end == nil ? "Ready, \(TimerLogic.clock(remaining))" : "\(TimerLogic.clock(remaining)) left"))
+            .accessibilityValue(finished ? Copy.timerDone(model.playful) : (end == nil ? "Ready, \(TimerLogic.clock(remaining))" : "\(TimerLogic.clock(remaining)) left"))
             .accessibilityHint(end == nil ? "Starts the timer" : "Stops and resets the timer")
             .accessibilityAddTraits(.isButton)
         }
@@ -112,6 +112,7 @@ struct TimerWidget: View {
         guard let end else { return }
         let wait = end.timeIntervalSinceNow
         if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        if wait > 0 && !Task.isCancelled { Celebration.shared.play(dock: dock.id) }
         let sound = NSSound(named: NSSound.Name(widget.string("sound", "Glass")))
         while !Task.isCancelled {
             sound?.stop()

@@ -68,7 +68,7 @@ struct FilePanel: View {
                 }
                 .frame(height: 160)
             } else if visible.isEmpty {
-                ContentUnavailableView.search(text: query).frame(height: 160)
+                NoResultsView(query: query).frame(height: 160)
             } else {
                 ScrollView {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Tokens.Space.m), count: 3),

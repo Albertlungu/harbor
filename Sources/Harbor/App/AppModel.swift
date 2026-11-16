@@ -49,9 +49,25 @@ final class AppModel {
         store = DockStore.load(from: file)
         dockController = DockController(model: self)
         windows.model = self
+        Appearance.shared.sync(store.settings)
+        Celebration.shared.model = self
+        observeAppearance()
         // Development aid for screenshots: open the Manager on a given section.
         if let raw = ProcessInfo.processInfo.environment["HARBOR_SECTION"], let section = ManagerSection(rawValue: raw) {
             managerSection = section
+        }
+    }
+
+    /// Keeps the shared palette in step with the settings so every window recolours live.
+    private func observeAppearance() {
+        withObservationTracking {
+            _ = store.settings
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                Appearance.shared.sync(self.store.settings)
+                self.observeAppearance()
+            }
         }
     }
 
@@ -82,10 +98,16 @@ final class AppModel {
     // MARK: Commands used by several surfaces
 
     func newDock() {
+        let first = store.docks.isEmpty
         let dock = store.createDock()
         selectedDockID = dock.id
         managerSection = .items
         windows.showManager()
+        if first { celebrateFirstDock() }
+    }
+
+    func celebrateFirstDock() {
+        Celebration.shared.play(window: windows.managerWindow)
     }
 
     func openInManager(_ id: UUID, section: ManagerSection = .items) {
@@ -126,6 +148,9 @@ final class AppModel {
             return error.localizedDescription
         }
     }
+
+    /// Whether copy should use its playful variant.
+    var playful: Bool { store.settings.playfulCopy }
 
     var launchAtLoginNeedsApproval: Bool { SMAppService.mainApp.status == .requiresApproval }
 }

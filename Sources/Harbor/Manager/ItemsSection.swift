@@ -73,9 +73,9 @@ private struct EmptyDockCards: View {
 
     var body: some View {
         VStack(spacing: Tokens.Space.xl) {
-            Text("This dock is empty").font(.title3.weight(.semibold))
-            Text("Start with one of these, or drag apps and folders here from Finder.")
-                .foregroundStyle(Tokens.textMuted)
+            let line = Copy.emptyDock(model.playful)
+            Text(line.title).font(.title3.weight(.semibold))
+            Text(line.detail).foregroundStyle(Tokens.textMuted)
             HStack(spacing: Tokens.Space.l) {
                 card("Apps & Files", symbol: "plus.app") {
                     AddMenuActions.pick(model: model, dockID: dock.id)

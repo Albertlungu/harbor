@@ -10,11 +10,13 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private var settings: NSWindow?
     private var onboarding: NSWindow?
 
+    var managerWindow: NSWindow? { manager }
+
     func showManager() {
         guard let model else { return }
         if manager == nil {
             manager = makeWindow(title: "Harbor", size: NSSize(width: 860, height: 600),
-                                 content: ManagerView().environment(model), autosave: "Manager")
+                                 content: ManagerView().environment(model).harborLook(), autosave: "Manager")
             manager?.contentMinSize = NSSize(width: 720, height: 440)
             // The dock name field in the toolbar already says what this window is.
             manager?.titleVisibility = .hidden
@@ -26,7 +28,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         guard let model else { return }
         if settings == nil {
             settings = makeWindow(title: "Harbor Settings", size: NSSize(width: 720, height: 540),
-                                  content: SettingsView().environment(model), autosave: "Settings")
+                                  content: SettingsView().environment(model).harborLook(), autosave: "Settings")
         }
         present(settings)
     }
@@ -34,8 +36,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     func showOnboarding() {
         guard let model else { return }
         if onboarding == nil {
-            onboarding = makeWindow(title: "Welcome to Harbor", size: NSSize(width: 560, height: 460),
-                                    content: OnboardingView().environment(model), autosave: nil)
+            onboarding = makeWindow(title: "Welcome to Harbor", size: NSSize(width: 560, height: 520),
+                                    content: OnboardingView().environment(model).harborLook(), autosave: nil)
             onboarding?.styleMask.remove(.resizable)
         }
         present(onboarding)
