@@ -139,6 +139,17 @@ struct DockBarLayout: View {
             frames[i].center = position + grown / 2
             position += grown + spacing
         }
+        // Near a screen corner the grown row would spill past the panel, which stops at the
+        // screen edge; shift it back inward so it grows toward the center instead.
+        if let first = frames.first, let last = frames.last {
+            let limit = horizontal ? state.panelSize.width : state.panelSize.height
+            let start = first.center - first.length * first.scale / 2 - CGFloat(dock.style.sidePadding)
+            let end = last.center + last.length * last.scale / 2 + CGFloat(dock.style.sidePadding)
+            var shift: CGFloat = 0
+            if limit > 0, end > limit { shift = limit - end }
+            if start + shift < 0 { shift = -start }
+            if shift != 0 { for i in frames.indices { frames[i].center += shift } }
+        }
         return frames
     }
 

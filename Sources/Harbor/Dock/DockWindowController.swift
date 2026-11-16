@@ -17,6 +17,8 @@ final class DockViewState {
     /// Pointer position along the dock axis in panel coordinates, while hovering the bar.
     var pointer: CGFloat?
     var hovering = false
+    /// The panel's size, so magnified items can be kept inside it (and on screen).
+    var panelSize: CGSize = .zero
     /// Slide applied to the whole dock while auto-hidden; the window itself stays put.
     var hideOffset: CGSize = .zero
     /// Fade applied while hidden as a floating dock or under another window.
@@ -150,6 +152,7 @@ final class DockWindowController {
         frame = frame.intersection(screen.geometry.frame.insetBy(dx: -1, dy: -1))
         if frame.isNull { frame = barFrame }
 
+        state.panelSize = frame.size
         state.barRect = CGRect(x: barFrame.minX - frame.minX, y: frame.maxY - barFrame.maxY,
                                width: barFrame.width, height: barFrame.height)
 

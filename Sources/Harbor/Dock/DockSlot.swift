@@ -44,7 +44,10 @@ enum DockSlot: Identifiable, Equatable {
     var magnifies: Bool {
         switch self {
         case .app(_, _, _, let spacer): return !spacer
-        case .item(let item): return item.kind != .widget
+        // Everything magnifies alike except spacers and dividers, which are structure, not items.
+        case .item(let item):
+            guard let kind = item.widget?.kind else { return true }
+            return kind != .spacer && kind != .divider
         }
     }
 }
