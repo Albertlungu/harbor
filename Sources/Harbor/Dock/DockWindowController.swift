@@ -91,7 +91,14 @@ final class DockWindowController {
 
     /// The screen-space region that currently responds to the pointer.
     private var activeRect: CGRect {
-        guard isNotch, state.notchFolded else { return barFrame }
+        guard isNotch, state.notchFolded else {
+            // The collapse button sits just outside the bar's start, so it counts as part of the dock.
+            guard dock.style.collapse.enabled, !dock.style.collapse.collapsed else { return barFrame }
+            let reach = DockMetrics.collapseReach
+            return state.isHorizontal
+                ? CGRect(x: barFrame.minX - reach, y: barFrame.minY, width: barFrame.width + reach, height: barFrame.height)
+                : CGRect(x: barFrame.minX, y: barFrame.minY, width: barFrame.width, height: barFrame.height + reach)
+        }
         return DockLayoutEngine.notchPillFrame(for: barFrame, edge: state.hugEdge).insetBy(dx: -8, dy: -8)
     }
 
@@ -112,10 +119,13 @@ final class DockWindowController {
         let iconSize = CGFloat(dock.style.iconSize)
         let spacing = CGFloat(dock.style.spacing.points)
         var lengths = slots.map { CGFloat($0.cells) * iconSize + ($0.cells > 1 ? spacing * CGFloat($0.cells - 1) : 0) }
-        if dock.style.collapse.enabled && dock.style.collapse.collapsed { lengths = [] }
         if dock.position.mode == .floating { lengths.append(DockMetrics.handleLength) }
         let position = ScreenResolver.position(for: dock, on: screen.id)
-        barFrame = DockLayoutEngine.barFrame(dock: dock, position: position, slotLengths: lengths, screen: screen.geometry)
+        // The panel is sized for the expanded bar even while collapsed, so collapsing and
+        // expanding animate inside one window instead of snapping the window's frame.
+        let expandedBar = DockLayoutEngine.barFrame(dock: dock, position: position, slotLengths: lengths, screen: screen.geometry)
+        let collapsed = dock.style.collapse.enabled && dock.style.collapse.collapsed
+        barFrame = collapsed ? Self.collapsedBar(expandedBar, dock: dock) : expandedBar
 
         let hug: ScreenEdge
         if position.mode == .pinned || dock.layout == .notch { hug = position.edge }
@@ -125,8 +135,8 @@ final class DockWindowController {
         let magnify = dock.style.magnify && dock.layout == .dock
         let grow = magnify ? iconSize * CGFloat(dock.style.maxScale - 1) : 0
         let across = grow + Tokens.Dock.labelHeadroom
-        let along = grow * CGFloat(dock.style.falloff) + 12
-        var frame = barFrame
+        let along = grow * CGFloat(dock.style.falloff) + 12 + (dock.style.collapse.enabled ? DockMetrics.collapseReach : 0)
+        var frame = expandedBar
         switch hug {
         case .bottom: frame = CGRect(x: frame.minX - along, y: frame.minY, width: frame.width + along * 2, height: frame.height + across)
         case .top: frame = CGRect(x: frame.minX - along, y: frame.minY - across, width: frame.width + along * 2, height: frame.height + across)
@@ -180,6 +190,22 @@ final class DockWindowController {
               !dock.behavior.autoHide, !dock.behavior.hideOnWindowHover, !fullscreenHidden, !barFrame.isEmpty else { return nil }
         return DockLayoutEngine.reservedStrip(bar: barFrame, edge: position.edge, fullWidth: position.fullWidth,
                                               screen: screen.geometry)
+    }
+
+    /// A square the size of the bar's thickness, at the end the collapse button lives on.
+    static func collapsedBar(_ bar: CGRect, dock: Dock) -> CGRect {
+        let horizontal = bar.width >= bar.height
+        let side = horizontal ? bar.height : bar.width
+        let length = horizontal ? bar.width : bar.height
+        let offset: CGFloat = switch dock.style.collapse.buttonPosition {
+        case .auto, .start: 0
+        case .center: (length - side) / 2
+        case .end: length - side
+        }
+        // Start is the left end of a horizontal bar and the top end of a vertical one.
+        return horizontal
+            ? CGRect(x: bar.minX + offset, y: bar.minY, width: side, height: side)
+            : CGRect(x: bar.minX, y: bar.maxY - side - offset, width: side, height: side)
     }
 
     /// Light or dark content to match the dock's own background, so labels and widgets stay
@@ -430,4 +456,6 @@ final class DockWindowController {
 
 enum DockMetrics {
     static let handleLength: CGFloat = 14
+    /// Room outside the bar's start for the collapse button.
+    static let collapseReach: CGFloat = 24
 }

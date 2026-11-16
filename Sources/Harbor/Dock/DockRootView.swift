@@ -47,7 +47,7 @@ struct DockBarLayout: View {
                     .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                         handleBarDrop(providers, location: nil)
                     }
-            } else {
+            } else if !collapsed {
                 DockBackground(style: dock.style, thickness: CGFloat(dock.style.thickness),
                                opaque: model.store.settings.opaqueBackgrounds, editing: editing)
                     .frame(width: bg.width, height: bg.height)
@@ -65,15 +65,17 @@ struct DockBarLayout: View {
                     .allowsHitTesting(false)
             }
 
-            if collapsed || dock.style.collapse.enabled {
-                CollapseButton(dock: dock, horizontal: horizontal)
-                    .frame(width: horizontal ? 18 : state.barRect.width, height: horizontal ? state.barRect.height : 18)
+            if dock.style.collapse.enabled {
+                CollapseButton(dock: dock, horizontal: horizontal, collapsed: collapsed,
+                               thickness: CGFloat(dock.style.thickness))
+                    .frame(width: collapseSize.width, height: collapseSize.height)
                     .offset(collapseOffset(bg))
             }
 
             if !collapsed {
                 ForEach(frames, id: \.slot.id) { frame in
                     slotView(frame, hovered: frame.slot.id == hoveredID)
+                        .transition(.opacity.combined(with: .scale(scale: 0.5)))
                 }
                 .opacity(notchFolded ? 0 : 1)
                 .allowsHitTesting(!notchFolded)
@@ -89,6 +91,7 @@ struct DockBarLayout: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.9), value: state.pointer)
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.84), value: collapsed)
     }
 
     // MARK: Layout math
@@ -165,9 +168,19 @@ struct DockBarLayout: View {
             : CGSize(width: state.barRect.minX, height: bg.maxY - DockMetrics.handleLength - 2)
     }
 
+    /// Expanded: a slim tab just outside the bar's start. Collapsed: a pill filling the folded bar.
+    private var collapseSize: CGSize {
+        let bar = state.barRect
+        if collapsed { return bar.size }
+        return horizontal ? CGSize(width: 18, height: bar.height * 0.62) : CGSize(width: bar.width * 0.62, height: 18)
+    }
+
     private func collapseOffset(_ bg: CGRect) -> CGSize {
-        horizontal ? CGSize(width: bg.minX - 20, height: state.barRect.minY)
-                   : CGSize(width: state.barRect.minX, height: bg.minY - 20)
+        let bar = state.barRect
+        if collapsed { return CGSize(width: bar.minX, height: bar.minY) }
+        return horizontal
+            ? CGSize(width: bg.minX - 22, height: bar.minY + bar.height * 0.19)
+            : CGSize(width: bar.minX + bar.width * 0.19, height: bg.minY - 22)
     }
 
     // MARK: Slot views

@@ -123,27 +123,41 @@ struct CollapseButton: View {
     @Environment(AppModel.self) private var model
     let dock: Dock
     let horizontal: Bool
+    let collapsed: Bool
+    let thickness: CGFloat
 
     var body: some View {
         let collapse = dock.style.collapse
+        let shape = RoundedRectangle(cornerRadius: collapsed ? thickness * CGFloat(dock.style.cornerStyle.fraction) : 7,
+                                     style: .continuous)
         Button {
             model.store.updateDock(dock.id) { $0.style.collapse.collapsed.toggle() }
         } label: {
             Group {
                 switch collapse.buttonStyle {
                 case .arrow:
-                    Image(systemName: arrowSymbol(collapsed: collapse.collapsed))
+                    Image(systemName: horizontal ? "chevron.right" : "chevron.down")
+                        .rotationEffect(.degrees(collapsed ? 0 : 180))
                 case .symbol:
                     Image(systemName: collapse.symbolName)
                 case .text:
-                    Text(String(collapse.text.prefix(5))).font(.system(size: 10, weight: .bold))
+                    Text(String(collapse.text.prefix(5))).font(.system(size: 11, weight: .bold, design: .rounded))
                 case .none:
                     Color.clear
                 }
             }
+            .font(.system(size: collapsed ? thickness * 0.3 : 10, weight: .semibold))
             .foregroundStyle(collapse.buttonColor?.color ?? Tokens.text)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Tokens.surface.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+            .background {
+                if collapsed {
+                    DockBackground(style: dock.style, thickness: thickness,
+                                   opaque: model.store.settings.opaqueBackgrounds, editing: false)
+                } else {
+                    shape.fill(Tokens.surface.opacity(0.7))
+                }
+            }
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(collapse.collapsed ? "Expand \(dock.name)" : "Collapse \(dock.name)")
@@ -154,11 +168,6 @@ struct CollapseButton: View {
                 model.store.updateDock(dock.id) { $0.style.collapse.collapsed = false }
             }
         }
-    }
-
-    private func arrowSymbol(collapsed: Bool) -> String {
-        if horizontal { return collapsed ? "chevron.right" : "chevron.left" }
-        return collapsed ? "chevron.down" : "chevron.up"
     }
 }
 
