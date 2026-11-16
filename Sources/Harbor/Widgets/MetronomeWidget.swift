@@ -15,6 +15,7 @@ struct MetronomeWidget: View {
     @State private var overlayBPM = MetronomeLogic.defaultBPM
     @State private var overlayVisible = false
     @State private var overlayTask: Task<Void, Never>?
+    @Environment(\.dockEdge) private var dockEdge
     @State private var hintVisible = false
     @State private var hintTask: Task<Void, Never>?
     // Swing is derived from the time of the last beat, so the bob is at an extreme exactly on each click.
@@ -63,7 +64,7 @@ struct MetronomeWidget: View {
         .contentShape(Rectangle())
         .onTapGesture { tap(engine) }
         .onHover { inside in if inside { revealHintOnce() } }
-        .overlay(alignment: .bottom) { hint(unit: unit) }
+        .overlay(alignment: hintAlignment) { hint(unit: unit) }
         .onChange(of: engine.tick) { tickInterval = MetronomeLogic.beatInterval(bpm: bpm); lastTickTime = Date() }
         .onChange(of: settingsKey, initial: true) { configure(engine) }
         .accessibilityElement(children: .ignore)
@@ -138,6 +139,24 @@ struct MetronomeWidget: View {
             .allowsHitTesting(false)
     }
 
+    private var hintAlignment: Alignment {
+        switch dockEdge {
+        case .bottom: .top
+        case .top: .bottom
+        case .left: .trailing
+        case .right: .leading
+        }
+    }
+
+    private var hintOffset: CGSize {
+        switch dockEdge {
+        case .bottom: CGSize(width: 0, height: -size.height * 0.75)
+        case .top: CGSize(width: 0, height: size.height * 0.75)
+        case .left: CGSize(width: size.width * 0.75, height: 0)
+        case .right: CGSize(width: -size.width * 0.75, height: 0)
+        }
+    }
+
     private func hint(unit: CGFloat) -> some View {
         Text(Self.hintText)
             .font(.system(size: max(unit * 0.17, 10)))
@@ -147,8 +166,8 @@ struct MetronomeWidget: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Capsule().fill(Tokens.surface).overlay(Capsule().strokeBorder(Tokens.border, lineWidth: 1)))
-            // Hangs below the widget's own frame so it never covers the controls it describes.
-            .alignmentGuide(.bottom) { $0[.top] - 4 }
+            // Sits on the dock's inward side, where hover labels go, so it is never off screen.
+            .offset(hintOffset)
             .opacity(hintVisible ? 1 : 0)
             .animation(.easeInOut(duration: 0.25), value: hintVisible)
             .allowsHitTesting(false)

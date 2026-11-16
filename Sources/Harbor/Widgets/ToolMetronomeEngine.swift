@@ -23,8 +23,8 @@ final class MetronomeEngine {
     @ObservationIgnored private var beats = MetronomeLogic.defaultBeats
     @ObservationIgnored private var accent = true
 
-    /// Enough queued beats to ride out a busy main thread without drifting audibly late on tempo changes.
-    private let queueDepth = 3
+    /// Two queued beats ride out a busy main thread while letting a tempo change land on the next beat.
+    private let queueDepth = 2
 
     init() {
         engine.attach(player)
