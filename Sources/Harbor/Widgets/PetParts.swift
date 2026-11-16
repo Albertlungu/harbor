@@ -1,4 +1,5 @@
 import AppKit
+import HarborCore
 import SwiftUI
 
 /// Hands the hosting window to SwiftUI, which has no direct way to ask for it.
@@ -40,43 +41,114 @@ struct PetSmile: Shape {
     }
 }
 
+struct PetHeadShape: Shape {
+    /// Cheeks bulge below the middle so the head reads as a soft, chubby dome rather than an ellipse.
+    func path(in rect: CGRect) -> Path {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+        var path = Path()
+        path.move(to: point(0.5, 0))
+        path.addCurve(to: point(1, 0.6), control1: point(0.82, 0), control2: point(1, 0.26))
+        path.addCurve(to: point(0.5, 1), control1: point(1, 0.86), control2: point(0.78, 1))
+        path.addCurve(to: point(0, 0.6), control1: point(0.22, 1), control2: point(0, 0.86))
+        path.addCurve(to: point(0.5, 0), control1: point(0, 0.26), control2: point(0.18, 0))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// An arch whose peak touches the top of its frame, or a bowl whose lowest point touches the bottom.
+struct PetArc: Shape {
+    var up: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let baseline = up ? rect.maxY : rect.minY
+        path.move(to: CGPoint(x: rect.minX, y: baseline))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: baseline),
+                          control: CGPoint(x: rect.midX, y: up ? rect.maxY - rect.height * 2 : rect.minY + rect.height * 2))
+        return path
+    }
+}
+
+/// Two small bowls side by side, the classic cat-like "w" mouth.
+struct PetWMouth: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.midX, y: rect.minY),
+                          control: CGPoint(x: rect.minX + rect.width * 0.25, y: rect.minY + rect.height * 2))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
+                          control: CGPoint(x: rect.minX + rect.width * 0.75, y: rect.minY + rect.height * 2))
+        return path
+    }
+}
+
+struct PetOpenSmile: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
+                          control: CGPoint(x: rect.midX, y: rect.minY + rect.height * 2))
+        path.closeSubpath()
+        return path
+    }
+}
+
 struct PetEye: View {
     let unit: CGFloat
+    let style: PetEyes
     let gaze: CGSize
     let lid: Double
-    let sparkle: Bool
     let twinkle: Double
 
     var body: some View {
-        let width = unit * 0.12
-        let height = unit * 0.13
+        let width = unit * 0.17
+        let height = unit * 0.19
+        let frameWidth = width * 1.15
+        let frameHeight = height * 1.15
+        let stroke = StrokeStyle(lineWidth: max(unit * 0.03, 1.2), lineCap: .round)
         ZStack {
-            Ellipse().fill(Color.white)
-                .overlay(Ellipse().stroke(Tokens.textMuted.opacity(0.5), lineWidth: 0.75))
-            Circle().fill(Color.black)
-                .frame(width: unit * 0.07, height: unit * 0.07)
-                .overlay {
-                    if sparkle {
-                        Image(systemName: "sparkle")
-                            .font(.system(size: unit * 0.045))
-                            .foregroundStyle(Color.white)
-                            .scaleEffect(0.8 + 0.3 * twinkle)
+            if style == .arcUp || style == .arcDown {
+                PetArc(up: style == .arcUp)
+                    .stroke(Tokens.Pet.eye, style: stroke)
+                    .frame(width: width * 0.9, height: height * 0.3)
+            } else if lid > 0.85 {
+                // A shut lid is a short bowl so a blink still reads as an eye closing rather than vanishing.
+                PetArc(up: false)
+                    .stroke(Tokens.Pet.eye, style: stroke)
+                    .frame(width: width * 0.9, height: height * 0.14)
+            } else {
+                openEye(width: width, height: height)
+                    .frame(width: frameWidth, height: frameHeight)
+                    .mask(alignment: .bottom) {
+                        Rectangle().frame(height: frameHeight * (1 - max(lid, style == .halfLid ? 0.45 : 0)))
                     }
-                }
-                .offset(x: gaze.width * unit * 0.025, y: gaze.height * unit * 0.03)
-            VStack(spacing: 0) {
-                Rectangle().fill(Tokens.surface).frame(height: height * lid)
-                Spacer(minLength: 0)
+                    .offset(x: gaze.width * unit * 0.03, y: gaze.height * unit * 0.035)
             }
         }
-        .frame(width: width, height: height)
-        .clipShape(Ellipse())
-        .overlay {
-            // A fully closed lid reads as a sleeping line rather than an empty patch.
-            if lid > 0.95 {
-                PetSmile(depth: 0.5)
-                    .stroke(Tokens.text, style: StrokeStyle(lineWidth: max(unit * 0.012, 1), lineCap: .round))
-                    .frame(width: width * 0.8, height: height * 0.12)
+        .frame(width: frameWidth, height: frameHeight)
+    }
+
+    private func openEye(width: CGFloat, height: CGFloat) -> some View {
+        let grow: CGFloat = (style == .wide || style == .sparkle) ? 1.15 : 1
+        return ZStack {
+            Ellipse().fill(Tokens.Pet.eye)
+                .frame(width: width * grow, height: height * grow)
+            // Two highlights at different sizes are what makes the eye look glossy and alive.
+            Circle().fill(Color.white)
+                .frame(width: width * 0.42, height: width * 0.42)
+                .offset(x: -width * 0.17, y: -height * 0.2)
+            Circle().fill(Color.white.opacity(0.9))
+                .frame(width: width * 0.18, height: width * 0.18)
+                .offset(x: width * 0.2, y: height * 0.22)
+            if style == .sparkle {
+                Image(systemName: "sparkle")
+                    .font(.system(size: unit * 0.07))
+                    .foregroundStyle(Color.white)
+                    .scaleEffect(0.7 + 0.5 * twinkle)
+                    .offset(x: width * 0.12, y: -height * 0.05)
             }
         }
     }
@@ -95,7 +167,7 @@ struct PetFishBubble: View {
                 .foregroundStyle(Tokens.accent)
             Circle().fill(Tokens.dockSolid)
                 .frame(width: unit * 0.04, height: unit * 0.04)
-                .offset(x: unit * 0.07, y: unit * 0.12)
+                .offset(x: -unit * 0.1, y: -unit * 0.02)
         }
         .accessibilityHidden(true)
     }
@@ -123,23 +195,65 @@ struct PetSleepLetters: View {
     }
 }
 
-struct PetHeart: View {
+struct PetSnoreBubble: View {
     let unit: CGFloat
-    let reduceMotion: Bool
-    let done: () -> Void
-
-    @State private var risen = false
-    @State private var xOffset = CGFloat.random(in: -0.15...0.15)
+    let time: Double
 
     var body: some View {
-        Image(systemName: "heart.fill")
-            .font(.system(size: unit * 0.16))
-            .foregroundStyle(Tokens.accent)
-            .offset(x: xOffset * unit, y: risen && !reduceMotion ? -unit * 0.4 : -unit * 0.1)
-            .opacity(risen ? 0 : 1)
+        let size = unit * (0.04 + 0.07 * PetMotion.breath(at: time))
+        Circle().stroke(Tokens.textMuted.opacity(0.7), lineWidth: max(unit * 0.012, 1))
+            .background(Circle().fill(Color.white.opacity(0.35)))
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+struct PetParticle: Identifiable, Equatable {
+    enum Kind { case heart, note, crumb, sparkle }
+
+    let id: Int
+    let kind: Kind
+    let origin: CGSize
+    /// Travel as a fraction of the unit, drawn at random so bursts never look stamped.
+    let drift: CGSize
+}
+
+struct PetParticleView: View {
+    let unit: CGFloat
+    let particle: PetParticle
+    let animated: Bool
+    let done: () -> Void
+
+    @State private var gone = false
+
+    var body: some View {
+        let travel = animated && gone
+        glyph
+            .offset(x: (particle.origin.width + (travel ? particle.drift.width : 0)) * unit,
+                    y: (particle.origin.height + (travel ? particle.drift.height : 0)) * unit)
+            .opacity(gone ? 0 : 1)
             .onAppear {
-                withAnimation(.easeOut(duration: 1.1)) { risen = true } completion: { done() }
+                withAnimation(.easeOut(duration: 0.8)) { gone = true }
+            }
+            .task {
+                try? await Task.sleep(for: .milliseconds(850))
+                done()
             }
             .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        switch particle.kind {
+        case .heart:
+            Image(systemName: "heart.fill").font(.system(size: unit * 0.15)).foregroundStyle(Tokens.badge)
+        case .note:
+            Image(systemName: "music.note").font(.system(size: unit * 0.13, weight: .semibold))
+                .foregroundStyle(Tokens.accent)
+        case .sparkle:
+            Image(systemName: "sparkle").font(.system(size: unit * 0.13)).foregroundStyle(Tokens.warning)
+        case .crumb:
+            Circle().fill(Tokens.Pet.flipper).frame(width: unit * 0.045, height: unit * 0.045)
+        }
     }
 }
