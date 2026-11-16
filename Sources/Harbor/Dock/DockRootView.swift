@@ -225,6 +225,8 @@ struct DockBarLayout: View {
     }
 
     private func shouldShowLabel(_ frame: SlotFrame, hovered: Bool) -> Bool {
+        // An open popover already names what it shows, and the label would sit under its arrow.
+        if state.menuOpen { return false }
         if case .app(_, _, _, true) = frame.slot { return false }
         if let item = frame.slot.item {
             if item.kind == .widget { return hovered && item.widget?.kind?.showsHoverLabel == true }

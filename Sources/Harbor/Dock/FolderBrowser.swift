@@ -42,7 +42,8 @@ struct FolderBrowser: View {
             }
         }
         .padding(Tokens.Space.l)
-        .frame(width: options.layout == .list ? 300 : nil)
+        // A definite size: popovers in a borderless panel won't present content that sizes to zero.
+        .frame(width: width)
         .onAppear(perform: load)
         .onKeyPress(.space) {
             if let selection { QuickLook.shared.preview(selection) }
@@ -61,6 +62,16 @@ struct FolderBrowser: View {
         }
     }
 
+    private var width: CGFloat {
+        switch options.layout {
+        case .list: 300
+        case .fan: 300
+        case .grid:
+            CGFloat(max(1, min(options.columns, max(entries.count, 1)))) * (CGFloat(options.iconSize) + 24 + Tokens.Space.m)
+                + Tokens.Space.l * 2
+        }
+    }
+
     private var grid: some View {
         let columns = Array(repeating: GridItem(.fixed(CGFloat(options.iconSize) + 24), spacing: Tokens.Space.m),
                             count: max(1, min(options.columns, entries.count)))
@@ -70,7 +81,7 @@ struct FolderBrowser: View {
                     VStack(spacing: Tokens.Space.xs) {
                         thumbnail(url, size: CGFloat(options.iconSize))
                         if options.showNames {
-                            Text(url.lastPathComponent).font(.caption).lineLimit(2).multilineTextAlignment(.center)
+                            Text(FileManager.default.displayName(atPath: url.path)).font(.caption).lineLimit(2).multilineTextAlignment(.center)
                         }
                     }
                     .padding(Tokens.Space.xs)
@@ -79,7 +90,13 @@ struct FolderBrowser: View {
                 }
             }
         }
-        .frame(maxHeight: 420)
+        .frame(height: min(420, gridHeight))
+    }
+
+    private var gridHeight: CGFloat {
+        let cols = max(1, min(options.columns, entries.count))
+        let rows = (entries.count + cols - 1) / cols
+        return CGFloat(rows) * (CGFloat(options.iconSize) + (options.showNames ? 44 : 16) + Tokens.Space.l)
     }
 
     private var list: some View {
@@ -88,7 +105,7 @@ struct FolderBrowser: View {
                 ForEach(entries, id: \.self) { url in
                     HStack {
                         thumbnail(url, size: 20)
-                        Text(url.lastPathComponent).lineLimit(1)
+                        Text(FileManager.default.displayName(atPath: url.path)).lineLimit(1)
                         Spacer()
                     }
                     .padding(.horizontal, Tokens.Space.s)
@@ -98,14 +115,14 @@ struct FolderBrowser: View {
                 }
             }
         }
-        .frame(maxHeight: 420)
+        .frame(height: min(420, CGFloat(entries.count) * 28 + 8))
     }
 
     private var fan: some View {
         VStack(alignment: .trailing, spacing: Tokens.Space.xs) {
             ForEach(Array(entries.prefix(12).enumerated()), id: \.element) { index, url in
                 HStack {
-                    Text(url.lastPathComponent).font(.callout).padding(.horizontal, 8).padding(.vertical, 3)
+                    Text(FileManager.default.displayName(atPath: url.path)).font(.callout).padding(.horizontal, 8).padding(.vertical, 3)
                         .background(.regularMaterial, in: Capsule())
                     thumbnail(url, size: 36)
                 }
