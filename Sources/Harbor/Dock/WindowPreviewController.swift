@@ -43,26 +43,6 @@ final class WindowPreviewController {
         content.onClose = { [weak self] window in self?.close(window) }
     }
 
-    // MARK: Scrolling over a dock icon
-
-    /// Scrolling over a running app opens its previews at once and steps a highlight through
-    /// its windows. Clicking a card raises that window.
-    func browse(path: String, from controller: DockWindowController?, step: Int) {
-        guard let controller, let app = model.running.app(atPath: path) else { return }
-        showTask?.cancel()
-        hideTask?.cancel()
-        if !panel.isVisible || presentedPath != RunningApps.normalize(path) {
-            present(app: app, path: path, from: controller)
-            content.selectedID = content.windows.first?.id
-            return
-        }
-        let windows = content.windows
-        guard !windows.isEmpty else { return }
-        let current = windows.firstIndex { $0.id == content.selectedID } ?? -1
-        let next = ((current + step) % windows.count + windows.count) % windows.count
-        content.selectedID = windows[next].id
-    }
-
     // MARK: Hover events from dock slots
 
     func hoverBegan(path: String, from controller: DockWindowController?) {
@@ -123,7 +103,6 @@ final class WindowPreviewController {
         content.canClose = WindowControl.isTrusted
         content.windows = windows
         content.images = [:]
-        content.selectedID = nil
         apply(windows: windows, settings: settings, access: access)
 
         controller.state.menuOpen = true

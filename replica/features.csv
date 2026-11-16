@@ -60,7 +60,7 @@ Deep-hide native macOS Dock,settings,should,yes,yes,
 Always use opaque backgrounds,settings,could,yes,yes,
 App-wide folder click behavior and open-with app,settings,should,yes,yes,
 Excluded apps and indicator color and attention style,settings,could,yes,yes,
-Click and scroll gestures,settings,could,yes,yes,
+Click and scroll gestures,settings,could,yes,partial,click gestures only; scrolling over icons removed by request
 Hide docks from screen sharing,settings,could,yes,yes,
 New dock defaults,settings,should,yes,yes,
 Icon library and custom icons,settings,should,yes,yes,

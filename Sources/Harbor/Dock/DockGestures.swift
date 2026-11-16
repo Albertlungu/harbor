@@ -65,78 +65,32 @@ enum DockGestures {
     }
 }
 
-/// Middle clicks and scroll-wheel gestures over dock panels, through local event monitors.
+/// Middle clicks over dock panels, through a local event monitor.
 @MainActor
 final class GestureMonitor {
     private unowned let model: AppModel
     private var tokens: [Any] = []
-    private var scrollAccumulator: CGFloat = 0
-    private var lastScrollAction = Date.distantPast
-
-    /// What the handler needs from an event, copied so the closure stays Sendable-clean.
-    private struct Input {
-        let type: NSEvent.EventType
-        let windowNumber: Int
-        let button: Int
-        let deltaY: CGFloat
-        let precise: Bool
-        let momentum: Bool
-    }
 
     init(model: AppModel) {
         self.model = model
     }
 
     func start() {
-        let token = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp, .scrollWheel]) { [weak self] event in
-            let input = Input(type: event.type, windowNumber: event.windowNumber, button: event.buttonNumber,
-                              deltaY: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas,
-                              momentum: !event.momentumPhase.isEmpty)
-            let consumed = MainActor.assumeIsolated { self?.handle(input) ?? false }
+        let token = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp]) { [weak self] event in
+            let window = event.windowNumber, button = event.buttonNumber
+            let consumed = MainActor.assumeIsolated { self?.handleMiddleClick(window: window, button: button) ?? false }
             return consumed ? nil : event
         }
         if let token { tokens.append(token) }
     }
 
-    private func handle(_ input: Input) -> Bool {
-        let settings = model.store.settings
-        guard let controller = model.dockController.windows.values.first(where: { $0.panel.windowNumber == input.windowNumber }),
+    private func handleMiddleClick(window: Int, button: Int) -> Bool {
+        guard button == 2,
+              let controller = model.dockController.windows.values.first(where: { $0.panel.windowNumber == window }),
               !model.store.editing.contains(controller.dockID),
               let id = controller.state.hoveredSlotID,
               let slot = controller.state.slots.first(where: { $0.id == id }),
-              let path = slot.appPath else { return false }
-
-        if input.type == .otherMouseUp {
-            guard input.button == 2, DockGestures.click(.middle, slot: slot, settings: settings, running: model.running)
-            else { return false }
-            return true
-        }
-
-        guard settings.scrollGestures, !input.momentum, let app = model.running.app(atPath: path) else { return false }
-        // Trackpads report many small deltas; a notch of wheel travel counts as one step.
-        scrollAccumulator += input.precise ? input.deltaY : input.deltaY * 10
-        guard abs(scrollAccumulator) >= 12, Date().timeIntervalSince(lastScrollAction) > 0.2 else { return true }
-        let up = scrollAccumulator > 0
-        scrollAccumulator = 0
-        lastScrollAction = Date()
-        // Bringing windows forward needs Accessibility; without it, show the previews instead
-        // of silently doing nothing.
-        let action = settings.scrollAction == .cycleWindows && !WindowControl.isTrusted ? .browsePreviews : settings.scrollAction
-        switch action {
-        case .browsePreviews:
-            // Scrolling down moves forward through the windows, like reading a list.
-            model.dockController.previews.browse(path: path, from: controller, step: up ? -1 : 1)
-        case .cycleWindows:
-            WindowControl.cycle(app.pid)
-        case .showHide:
-            guard let live = NSRunningApplication(processIdentifier: app.pid) else { return true }
-            if up {
-                live.unhide()
-                live.activate()
-            } else {
-                live.hide()
-            }
-        }
-        return true
+              slot.appPath != nil else { return false }
+        return DockGestures.click(.middle, slot: slot, settings: model.store.settings, running: model.running)
     }
 }

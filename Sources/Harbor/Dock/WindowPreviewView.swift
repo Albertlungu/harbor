@@ -15,8 +15,6 @@ final class WindowPreviewModel {
     var layout = PreviewLayout.empty
     var hasScreenAccess = false
     var canClose = false
-    /// The window picked by scrolling over the app's dock icon.
-    var selectedID: CGWindowID?
 
     @ObservationIgnored var onRaise: (PreviewWindow) -> Void = { _ in }
     @ObservationIgnored var onClose: (PreviewWindow) -> Void = { _ in }
@@ -137,15 +135,8 @@ private struct PreviewCard: View {
         }
         .padding(6)
         .frame(width: width)
-        .background(hovered || model.selectedID == window.id ? Tokens.surface.opacity(0.8) : Color.clear,
+        .background(hovered ? Tokens.surface.opacity(0.8) : Color.clear,
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous))
-        .overlay {
-            if model.selectedID == window.id {
-                RoundedRectangle(cornerRadius: Tokens.Radius.card, style: .continuous)
-                    .strokeBorder(Tokens.accent, lineWidth: 2)
-            }
-        }
-        .animation(.easeOut(duration: 0.12), value: model.selectedID)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture { model.onRaise(window) }
@@ -203,7 +194,7 @@ private struct CompactRow: View {
         }
         .padding(.horizontal, Tokens.Space.m)
         .frame(height: PreviewLayout.compactRow)
-        .background(hovered || model.selectedID == window.id ? Tokens.accent.opacity(0.22) : Color.clear,
+        .background(hovered ? Tokens.surface.opacity(0.8) : Color.clear,
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.pill, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hovered = $0 }

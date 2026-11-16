@@ -224,14 +224,6 @@ private struct BehaviorSettings: View {
                         }
                     }
                 }
-                Toggle("Scroll over an app icon", isOn: model.setting(\.scrollGestures))
-                if model.store.settings.scrollGestures {
-                    Picker("Scrolling", selection: model.setting(\.scrollAction)) {
-                        Text("Opens previews and steps through its windows").tag(ScrollAction.browsePreviews)
-                        Text("Brings its windows forward in turn").tag(ScrollAction.cycleWindows)
-                        Text("Shows (up) or hides (down) it").tag(ScrollAction.showHide)
-                    }
-                }
                 Text("Control-click always opens the menu.").font(.caption).foregroundStyle(Tokens.textMuted)
             }
             Section("Privacy") {

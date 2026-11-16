@@ -64,12 +64,6 @@ public struct ConfigFile: Sendable {
 
     /// Brings configs written by older builds up to date.
     static func migrate(_ config: inout Config) {
-        if config.schemaVersion < 2 {
-            // Version 2 added scrolling through window previews. Older configs only ever stored
-            // the previous default, so they move to the new one rather than keep a stale choice.
-            config.settings.scrollGestures = true
-            config.settings.scrollAction = .browsePreviews
-        }
         config.schemaVersion = Config.currentSchemaVersion
     }
 

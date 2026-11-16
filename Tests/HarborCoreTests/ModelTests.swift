@@ -36,11 +36,9 @@ import Testing
         #expect(again.docks[0].items[0].widget?.settings["x"] == .number(1))
     }
 
-    @Test func versionOneMovesScrollingToPreviews() throws {
+    @Test func olderConfigsLoadAtCurrentVersion() throws {
         let json = #"{"schemaVersion":1,"settings":{"scrollGestures":false,"scrollAction":"cycleWindows"}}"#
         let config = try ConfigFile.decode(Data(json.utf8))
-        #expect(config.settings.scrollAction == .browsePreviews)
-        #expect(config.settings.scrollGestures)
         #expect(config.schemaVersion == Config.currentSchemaVersion)
     }
 
