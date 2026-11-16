@@ -54,6 +54,7 @@ final class DockWindowController {
     }
 
     var dockID: UUID { dock.id }
+    var panelFrame: CGRect { panel.frame }
 
     func update(dock: Dock, screen: ConnectedScreen, slots: [DockSlot], settings: AppSettings, editing: Bool) {
         let behaviorChanged = dock.behavior.autoHide != self.dock.behavior.autoHide

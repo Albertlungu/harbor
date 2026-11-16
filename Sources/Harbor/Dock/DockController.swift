@@ -11,9 +11,11 @@ final class DockController {
     private var monitors: [Any] = []
     private var fullscreenTimer: Timer?
     private var reconcileScheduled = false
+    let previews: WindowPreviewController
 
     init(model: AppModel) {
         self.model = model
+        previews = WindowPreviewController(model: model)
     }
 
     func start() {

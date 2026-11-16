@@ -35,6 +35,7 @@ struct DockSlotView: View {
                 }
             }
             .onChange(of: showFolder) { _, open in state.menuOpen = open }
+            .onChange(of: hovered) { _, isHovered in previewHover(isHovered) }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityName)
             .accessibilityAddTraits(.isButton)
@@ -117,6 +118,25 @@ struct DockSlotView: View {
     }
 
     // MARK: Actions
+
+    /// The app this slot launches, if it is one.
+    private var appPath: String? {
+        switch slot {
+        case .app(_, let path, _, let spacer): spacer ? nil : path
+        case .item(let item): item.kind == .app ? item.path : nil
+        }
+    }
+
+    private func previewHover(_ isHovered: Bool) {
+        guard !editing, let path = appPath else { return }
+        let previews = model.dockController.previews
+        if isHovered {
+            let owner = model.dockController.controllers(for: dock.id).first { $0.state.screenID == state.screenID }
+            previews.hoverBegan(path: path, from: owner)
+        } else {
+            previews.hoverEnded()
+        }
+    }
 
     private func tap() {
         guard !editing else { return }

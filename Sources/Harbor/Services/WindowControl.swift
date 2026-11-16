@@ -43,6 +43,15 @@ enum WindowControl {
         NSRunningApplication(processIdentifier: pid)?.activate()
     }
 
+    /// Presses the window's close button; a window without one is left alone.
+    static func close(_ window: Window) {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window.element, kAXCloseButtonAttribute as CFString, &value) == .success,
+              let button = value else { return }
+        // swiftlint:disable:next force_cast
+        AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+    }
+
     static func minimizeFront(of pid: pid_t) {
         let app = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
