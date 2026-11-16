@@ -10,6 +10,7 @@ let package = Package(
     targets: [
         .target(name: "HarborCore"),
         .executableTarget(name: "Harbor", dependencies: ["HarborCore"]),
+        .executableTarget(name: "harbor-mcp", dependencies: ["HarborCore"], path: "Sources/HarborMCP"),
         .testTarget(name: "HarborCoreTests", dependencies: ["HarborCore"]),
     ]
 )

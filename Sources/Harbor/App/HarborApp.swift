@@ -39,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated { model.start() }
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated { URLCommands.handle(urls, model: model) }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { model.stop() }
     }
