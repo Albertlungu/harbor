@@ -10,6 +10,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private var settings: NSWindow?
     private var onboarding: NSWindow?
 
+    var managerWindow: NSWindow? { manager }
+
     func showManager() {
         guard let model else { return }
         if manager == nil {

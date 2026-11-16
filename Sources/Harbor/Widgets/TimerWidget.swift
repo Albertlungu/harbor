@@ -112,6 +112,7 @@ struct TimerWidget: View {
         guard let end else { return }
         let wait = end.timeIntervalSinceNow
         if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        if wait > 0 && !Task.isCancelled { Celebration.shared.play(dock: dock.id) }
         let sound = NSSound(named: NSSound.Name(widget.string("sound", "Glass")))
         while !Task.isCancelled {
             sound?.stop()

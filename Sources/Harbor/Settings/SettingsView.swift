@@ -508,6 +508,7 @@ private struct BackupSettings: View {
         do {
             try BackupArchive.write(config: model.store.config, iconsDirectory: model.file.iconsDirectory, to: url)
             message = "Saved."
+            Celebration.shared.play(window: NSApp.keyWindow)
         } catch {
             message = error.localizedDescription
         }

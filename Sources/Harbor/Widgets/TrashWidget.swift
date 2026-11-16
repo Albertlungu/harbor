@@ -61,7 +61,7 @@ enum TrashService {
     static func emptyWithDialogs() {
         guard confirmEmpty() else { return }
         switch empty() {
-        case .done: break
+        case .done: Celebration.shared.play(dock: nil)
         case .automationDenied:
             let alert = NSAlert()
             alert.messageText = "Harbor can't control Finder"
@@ -233,7 +233,9 @@ private struct TrashPanel: View {
     private func empty() {
         guard TrashService.confirmEmpty() else { return }
         switch TrashService.empty() {
-        case .done: message = nil
+        case .done:
+            message = nil
+            Celebration.shared.play(dock: nil)
         case .automationDenied: message = .denied
         case .failed(let text): message = .failed(text)
         }

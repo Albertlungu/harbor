@@ -50,6 +50,7 @@ final class AppModel {
         dockController = DockController(model: self)
         windows.model = self
         Appearance.shared.sync(store.settings)
+        Celebration.shared.model = self
         observeAppearance()
         // Development aid for screenshots: open the Manager on a given section.
         if let raw = ProcessInfo.processInfo.environment["HARBOR_SECTION"], let section = ManagerSection(rawValue: raw) {
@@ -97,10 +98,16 @@ final class AppModel {
     // MARK: Commands used by several surfaces
 
     func newDock() {
+        let first = store.docks.isEmpty
         let dock = store.createDock()
         selectedDockID = dock.id
         managerSection = .items
         windows.showManager()
+        if first { celebrateFirstDock() }
+    }
+
+    func celebrateFirstDock() {
+        Celebration.shared.play(window: windows.managerWindow)
     }
 
     func openInManager(_ id: UUID, section: ManagerSection = .items) {

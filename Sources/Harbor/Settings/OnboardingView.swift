@@ -37,11 +37,13 @@ struct OnboardingView: View {
                     choice(replace.title, detail: replace.detail, symbol: "dock.rectangle") {
                         model.setReplaceNativeDock(true)
                         finish(selecting: model.selectedDockID)
+                        model.celebrateFirstDock()
                     }
                 }
                 let fresh = Copy.emptyChoice(model.playful)
                 choice(fresh.title, detail: fresh.detail, symbol: "plus.rectangle") {
                     finish(selecting: model.store.createDock().id)
+                    model.celebrateFirstDock()
                 }
                 let later = Copy.notNow(model.playful)
                 choice(later.title, detail: later.detail, symbol: "sidebar.left") {
