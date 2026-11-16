@@ -49,6 +49,9 @@ final class DockWindowController {
     private var notchMoveTask: Task<Void, Never>?
     private var lastNotchPlacement: [AnyHashable] = []
     private var isEditing = false
+    /// Faded out because another app's window overlaps the bar; returns after it has been clear a while.
+    private(set) var windowHoverHidden = false
+    private var windowClearSince: Date?
     private var notchEnter: Date?
     private var notchLeave: Date?
 
@@ -193,7 +196,8 @@ final class DockWindowController {
                 final = frame.offsetBy(dx: hiddenBar.minX - barFrame.minX, dy: hiddenBar.minY - barFrame.minY)
             }
         }
-        let alpha: CGFloat = (autoHidden && dock.position.mode == .floating && dock.layout == .dock) ? 0 : 1
+        let floatingHidden = autoHidden && dock.position.mode == .floating && dock.layout == .dock
+        let alpha: CGFloat = (floatingHidden || windowHoverHidden) ? 0 : 1
         if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = Tokens.Motion.reveal
@@ -225,7 +229,7 @@ final class DockWindowController {
         let inside = barHit || (state.hovering && panelHit && !autoHidden)
 
         if inside != state.hovering { state.hovering = inside }
-        panel.ignoresMouseEvents = !(barHit || (state.hovering && panelHit))
+        panel.ignoresMouseEvents = windowHoverHidden || !(barHit || (state.hovering && panelHit))
         if inside {
             let local = CGPoint(x: point.x - panel.frame.minX, y: panel.frame.maxY - point.y)
             state.pointer = state.isHorizontal ? local.x : local.y
@@ -310,6 +314,29 @@ final class DockWindowController {
         autoHidden = false
         hotkeyRevealUntil = Date().addingTimeInterval(duration > 0 ? duration : 1)
         place(frame: targetFrame, animated: true)
+    }
+
+    /// `overlapping` is whether another app's window currently intersects the bar.
+    func updateWindowHover(overlapping: Bool, now: Date = Date()) {
+        guard dock.behavior.hideOnWindowHover, !isEditing else {
+            if windowHoverHidden { windowHoverHidden = false; windowClearSince = nil; place(frame: targetFrame, animated: true) }
+            return
+        }
+        if overlapping {
+            windowClearSince = nil
+            if !windowHoverHidden {
+                windowHoverHidden = true
+                state.pointer = nil
+                place(frame: targetFrame, animated: true)
+            }
+        } else if windowHoverHidden {
+            if windowClearSince == nil { windowClearSince = now }
+            if now.timeIntervalSince(windowClearSince!) >= 0.4 {
+                windowHoverHidden = false
+                windowClearSince = nil
+                place(frame: targetFrame, animated: true)
+            }
+        }
     }
 
     func setFullscreenHidden(_ hidden: Bool) {

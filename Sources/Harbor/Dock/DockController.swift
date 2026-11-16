@@ -56,6 +56,7 @@ final class DockController {
             MainActor.assumeIsolated {
                 self?.pointerMoved()
                 self?.checkFullscreen()
+                self?.checkWindowHover()
             }
         }
     }
@@ -147,6 +148,20 @@ final class DockController {
         for controller in windows.values { controller.pointerMoved(to: point) }
     }
 
+    private func checkWindowHover() {
+        let watching = windows.values.filter { model.store.dock($0.dockID)?.behavior.hideOnWindowHover == true }
+        // Skip the window list entirely when no dock asks for it, and let any stale fade clear.
+        guard !watching.isEmpty else {
+            for controller in windows.values where controller.windowHoverHidden { controller.updateWindowHover(overlapping: false) }
+            return
+        }
+        let frames = OtherAppWindows.frames()
+        for controller in watching {
+            let bar = controller.barFrame
+            controller.updateWindowHover(overlapping: frames.contains { $0.intersects(bar) })
+        }
+    }
+
     private func checkFullscreen() {
         let fullscreenFrames = FullscreenDetector.fullscreenScreenFrames()
         for controller in windows.values {
@@ -181,5 +196,24 @@ enum FullscreenDetector {
             }
         }
         return result
+    }
+}
+
+/// On-screen standard-layer windows of other apps, in AppKit coordinates.
+@MainActor
+enum OtherAppWindows {
+    static func frames() -> [CGRect] {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]],
+              let primaryHeight = NSScreen.screens.first?.frame.maxY else { return [] }
+        let own = ProcessInfo.processInfo.processIdentifier
+        return info.compactMap { window in
+            guard (window[kCGWindowOwnerPID as String] as? pid_t) != own,
+                  (window[kCGWindowLayer as String] as? Int) == 0,
+                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { return nil }
+            return CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
+        }
     }
 }
