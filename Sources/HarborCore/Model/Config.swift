@@ -100,6 +100,18 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public var openSound = false
     public var openSoundVolume = 0.5
 
+    // Personality
+    public var personality: Personality = .balanced
+    public var palette: Palette = .pastel
+    public var categoryColors = true
+    public var paletteGlass = false
+    public var playfulCopy = true
+    public var celebrations = true
+    public var roundedType = true
+    /// Read by the dock pet.
+    public var petEnergy: PetEnergy = .normal
+    public var petQuiet = false
+
     public var newDocks = NewDockDefaults()
     public var previews = PreviewSettings()
 
@@ -132,6 +144,15 @@ public struct AppSettings: Codable, Hashable, Sendable {
         openEffect = c(.openEffect, d.openEffect)
         openSound = c(.openSound, d.openSound)
         openSoundVolume = c(.openSoundVolume, d.openSoundVolume)
+        personality = c(.personality, d.personality)
+        palette = c(.palette, d.palette)
+        categoryColors = c(.categoryColors, d.categoryColors)
+        paletteGlass = c(.paletteGlass, d.paletteGlass)
+        playfulCopy = c(.playfulCopy, d.playfulCopy)
+        celebrations = c(.celebrations, d.celebrations)
+        roundedType = c(.roundedType, d.roundedType)
+        petEnergy = c(.petEnergy, d.petEnergy)
+        petQuiet = c(.petQuiet, d.petQuiet)
         newDocks = c(.newDocks, d.newDocks)
         previews = c(.previews, d.previews)
     }
