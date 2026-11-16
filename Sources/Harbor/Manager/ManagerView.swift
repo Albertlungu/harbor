@@ -177,6 +177,8 @@ struct DockEditor: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 180)
                     .onSubmit { if !model.store.rename(dock.id, to: name) { name = dock.name } }
+                    // Names save as you type; an empty field keeps the old name until something is typed.
+                    .onChange(of: name) { _, new in model.store.rename(dock.id, to: new) }
                     .accessibilityLabel("Dock name")
             }
         }

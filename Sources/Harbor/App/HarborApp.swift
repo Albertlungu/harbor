@@ -21,6 +21,7 @@ struct HarborApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
+        .commands { EditCommands() }
     }
 
     /// Template glyph from the app bundle; nil under `swift run`, where resources are absent.
@@ -50,5 +51,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainActor.assumeIsolated { model.windows.showManager() }
         return false
+    }
+}
+
+/// SwiftUI leaves the Edit menu out of a menu-bar-only app, and text fields depend on it
+/// for Select All, Cut, Copy, Paste and Undo.
+struct EditCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .undoRedo) {
+            Button("Undo") { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
+                .keyboardShortcut("z")
+            Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+        }
+        CommandGroup(replacing: .pasteboard) {
+            Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
+                .keyboardShortcut("x")
+            Button("Copy") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
+                .keyboardShortcut("c")
+            Button("Paste") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
+                .keyboardShortcut("v")
+            Button("Select All") { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+                .keyboardShortcut("a")
+        }
     }
 }

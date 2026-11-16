@@ -77,7 +77,7 @@ private struct EmptyDockCards: View {
             Text("Start with one of these, or drag apps and folders here from Finder.")
                 .foregroundStyle(Tokens.textMuted)
             HStack(spacing: Tokens.Space.l) {
-                card("Apps & Files", symbol: "app.badge.plus") {
+                card("Apps & Files", symbol: "plus.app") {
                     AddMenuActions.pick(model: model, dockID: dock.id)
                 }
                 card("Widgets", symbol: "square.grid.3x3") { model.showingLibraryFor = dock.id }
