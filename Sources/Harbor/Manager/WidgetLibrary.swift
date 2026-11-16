@@ -84,15 +84,9 @@ struct WidgetLibrary: View {
     }
 
     /// One soft hue per category so the gallery scans by color as well as by name.
-    static func tint(for category: WidgetCategory) -> Color {
-        switch category {
-        case .apps: .blue
-        case .folders: .teal
-        case .clocks: .orange
-        case .tasks: .purple
-        case .system: .green
-        case .all: Tokens.accent
-        }
+    /// Follows the palette, and goes neutral when category colors are off.
+    @MainActor static func tint(for category: WidgetCategory) -> Color {
+        Appearance.shared.hue(for: category)
     }
 
     private func add(_ kind: WidgetKind) {

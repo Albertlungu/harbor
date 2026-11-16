@@ -26,13 +26,14 @@ struct OpenEffectModifier: ViewModifier {
         let poses = Self.poses(for: effect, reduceMotion: reduceMotion)
         let anchor = Self.anchor(for: edge)
         let direction = Self.direction(for: edge)
+        let accent = Tokens.accent
         content.keyframeAnimator(initialValue: Pose(), trigger: trigger) { view, pose in
             view
                 .background {
-                    Circle().fill(Tokens.accent.opacity(0.6)).blur(radius: 9).scaleEffect(1.25).opacity(pose.glow)
+                    Circle().fill(accent.opacity(0.6)).blur(radius: 9).scaleEffect(1.25).opacity(pose.glow)
                 }
                 .overlay {
-                    Circle().strokeBorder(Tokens.accent, lineWidth: 2).scaleEffect(pose.ring).opacity(pose.ringOpacity)
+                    Circle().strokeBorder(accent, lineWidth: 2).scaleEffect(pose.ring).opacity(pose.ringOpacity)
                 }
                 .scaleEffect(x: pose.sx, y: pose.sy, anchor: anchor)
                 .rotationEffect(.degrees(pose.rotation), anchor: anchor)

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Color roles from replica/design/tokens.json (light) and tokens.dark.json (dark).
 enum Tokens {
-    private static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
+    static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return NSColor(hex: isDark ? dark : light)
@@ -18,8 +18,6 @@ enum Tokens {
     static let textMuted = dynamic(0x5F5F66, 0xA8A8B0)
     static let labelBackground = dynamic(0x2B2B30, 0xF0F0F3)
     static let onLabel = dynamic(0xFFFFFF, 0x1D1D1F)
-    static let accent = dynamic(0x3A5CCC, 0x7D9CFF)
-    static let onAccent = dynamic(0xFFFFFF, 0x10131C)
     static let indicator = dynamic(0x3C3C43, 0xD6D6DC)
     static let badge = dynamic(0xD93A2F, 0xFF5F52)
     static let onBadge = dynamic(0xFFFFFF, 0x1D0302)

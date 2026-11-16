@@ -13,6 +13,7 @@ struct DockRootView: View {
                 .environment(\.dockEdge, state.hugEdge)
                 .offset(state.hideOffset)
                 .opacity(state.contentOpacity)
+                .fontDesign(Appearance.shared.fontDesign)
         }
     }
 }

@@ -49,9 +49,24 @@ final class AppModel {
         store = DockStore.load(from: file)
         dockController = DockController(model: self)
         windows.model = self
+        Appearance.shared.sync(store.settings)
+        observeAppearance()
         // Development aid for screenshots: open the Manager on a given section.
         if let raw = ProcessInfo.processInfo.environment["HARBOR_SECTION"], let section = ManagerSection(rawValue: raw) {
             managerSection = section
+        }
+    }
+
+    /// Keeps the shared palette in step with the settings so every window recolours live.
+    private func observeAppearance() {
+        withObservationTracking {
+            _ = store.settings
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                Appearance.shared.sync(self.store.settings)
+                self.observeAppearance()
+            }
         }
     }
 

@@ -30,7 +30,8 @@ struct DockBackground: View {
         } else {
             switch style.background {
             case .glass:
-                let glass: Glass = style.glassTint.map { Glass.regular.tint($0.color) } ?? .regular
+                let glass: Glass = style.glassTint.map { Glass.regular.tint($0.color) }
+                    ?? (Appearance.shared.paletteGlass ? Glass.regular.tint(Tokens.accent.opacity(Tokens.paletteWash)) : .regular)
                 shape.fill(.clear)
                     .glassEffect(glass, in: shape)
                     .overlay(style.darkGlass ? shape.fill(Color.black.opacity(0.35)) : nil)
