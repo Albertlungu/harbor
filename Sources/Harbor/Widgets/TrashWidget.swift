@@ -171,7 +171,8 @@ private struct TrashPanel: View {
                         ForEach(visible) { row($0) }
                     }
                 }
-                .frame(maxHeight: 340)
+                // Lazy stacks have no ideal height, so a popover would shrink the list to nothing.
+                .frame(height: min(340, CGFloat(max(visible.count, 1)) * 46))
             }
         }
         .padding(Tokens.Storage.popoverPadding)

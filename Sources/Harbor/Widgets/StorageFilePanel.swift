@@ -76,7 +76,8 @@ struct FilePanel: View {
                         ForEach(visible) { entry in tile(entry) }
                     }
                 }
-                .frame(maxHeight: 360)
+                // Lazy grids have no ideal height, so a popover would shrink the grid to nothing.
+                .frame(height: min(360, CGFloat((visible.count + 2) / 3) * 104))
             }
         }
         .padding(Tokens.Storage.popoverPadding)
