@@ -26,6 +26,8 @@ enum DevRender {
             write(sheet, appearance: appearance, to: out.appendingPathComponent("pet-\(suffix).png"))
             write(speciesSheet, appearance: appearance, to: out.appendingPathComponent("species-\(suffix).png"))
             write(optionsSheet, appearance: appearance, to: out.appendingPathComponent("options-\(suffix).png"))
+            write(settingsSheet(scratch: out.appendingPathComponent("config")), appearance: appearance,
+                  to: out.appendingPathComponent("settings-\(suffix).png"))
         }
         return true
     }
@@ -90,6 +92,21 @@ enum DevRender {
                 }
             }
         }
+    }
+
+    /// The appearance settings against a throwaway config, never the user's.
+    private static func settingsSheet(scratch: URL) -> some View {
+        let model = AppModel(file: ConfigFile(directory: scratch))
+        let dock = model.store.createDock(name: "Render")
+        let item = DockItem(kind: .widget, widget: WidgetConfig(kind: .pet, settings: [
+            "species": .string("fox"), "accessory": .string("scarf"), "pattern": .string("belly")]))
+        model.store.addItems([item], to: dock.id)
+        // A Form scrolls through AppKit, which ImageRenderer cannot capture, so the rows are stacked plainly.
+        return VStack(alignment: .leading, spacing: 10) {
+            PetAppearanceSettings(fields: WidgetFields(model: model, itemID: item.id, dockID: dock.id))
+        }
+        .frame(width: 460)
+        .environment(model)
     }
 
     private static var optionsSheet: some View {

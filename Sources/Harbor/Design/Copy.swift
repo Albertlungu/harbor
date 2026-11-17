@@ -96,6 +96,8 @@ enum Copy {
     static func libraryTitle(_ playful: Bool) -> String { playful ? "Pick a widget" : "Widgets" }
 
     static func timerDone(_ playful: Bool) -> String { playful ? "Time's up." : "Finished" }
+
+    static func randomizePet(_ playful: Bool) -> String { playful ? "Surprise Me" : "Randomize" }
 }
 
 /// Search with nothing found, in the current voice.
