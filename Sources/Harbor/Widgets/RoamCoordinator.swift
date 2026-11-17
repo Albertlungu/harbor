@@ -7,7 +7,7 @@ struct PetKey: Hashable {
     let item: UUID
 }
 
-/// Transparent and click-through except over the pet itself, and invisible to screen sharing.
+/// Transparent and click-through except over the pet itself.
 final class RoamPanel: NSPanel {
     init(side: CGFloat) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: side, height: side),
@@ -23,7 +23,6 @@ final class RoamPanel: NSPanel {
         level = .statusBar
         // Matches the docks, so the pet stays put while Spaces slide past, fullscreen ones included.
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        sharingType = .none
         ignoresMouseEvents = true
     }
 
@@ -47,14 +46,26 @@ private final class RoamPet {
     var mode: RoamMode = .patrol
     var surfaces: [RoamSurface] = []
     var walls: [RoamWall] = []
+    var ceilings: [RoamSurface] = []
     var nav: RoamNav?
     var bars: [CGRect] = []
     var walkOnWindows = true
+    var seesLedges = true
     var hidden = true
     var ticker: RoamTicker?
     var beat: Task<Void, Never>?
     var lastStep = ContinuousClock.now
     var holdUntil = Date.distantPast
+    /// A menu is open on it or it is pressed: it stays exactly where it is until let go.
+    var frozen = false
+    /// The angle it is drawn at, eased toward the brain's, and the corner it is swinging around.
+    var shownAngle = 0.0
+    var turn: RoamTurn?
+    /// The brain's middle when the swing began, so the pet keeps moving along the new surface meanwhile.
+    var turnBase = CGPoint.zero
+    var shownMiddle: CGPoint?
+    var wasAttached = false
+    var lastPresent = ContinuousClock.now
 
     init(key: PetKey, unit: CGFloat, screen: ConnectedScreen, home: RoamHome) {
         self.key = key
@@ -68,13 +79,22 @@ private final class RoamPet {
     var unit: Double { Double(driver.unit) }
     var feet: CGPoint { CGPoint(x: state.x, y: state.y) }
 
-    /// The middle of the body: above the feet, or out from the wall it holds.
-    var middle: CGPoint {
-        if let wall = state.wall, state.activity.isOnWall {
-            return CGPoint(x: wall.x + wall.normal * unit / 2, y: state.y)
-        }
-        return CGPoint(x: state.x, y: state.y + unit / 2)
+    /// The middle of the body: above the feet, out from the wall it holds, or below its ceiling.
+    var middle: CGPoint { RoamBrain.middle(state, half: unit / 2) }
+
+    /// Still turning a corner or easing its angle, so it needs frames even when the brain is still.
+    var settling: Bool {
+        turn != nil || abs(RoamPose.delta(from: shownAngle, to: RoamPose.angle(state))) > 0.05
     }
+}
+
+/// A roaming pet as other layers see it, such as desktop weather.
+struct RoamBody {
+    let key: PetKey
+    /// Bottom center of the body when upright; on a wall or ceiling, the point touching it.
+    let feet: CGPoint
+    let velocity: CGVector
+    let unit: CGFloat
 }
 
 /// Owns every roaming pet: windows, the loops that move them, and the rules for when they hide.
@@ -107,6 +127,10 @@ final class RoamCoordinator {
     private var scanningElements = false
     private var watchingAttention = false
     private var lastGazeTick = Date.distantPast
+    private var menusOpen = 0
+    private let vision = RoamVisionScanner()
+    /// Edges found in pictures of the screen, in AppKit coordinates, standing in for elements.
+    private var visionLedges: [CGRect] = []
 
     /// Quiet mode (Settings › Personality) keeps a roaming pet hanging out in one place.
     private var quiet: Bool { model?.store.settings.petQuiet ?? false }
@@ -127,7 +151,11 @@ final class RoamCoordinator {
         }
         watch(distributed, Notification.Name("com.apple.screenIsLocked")) { $0.setLocked(true) }
         watch(distributed, Notification.Name("com.apple.screenIsUnlocked")) { $0.setLocked(false) }
+        // A right-click menu on a pet holds it still until the menu closes.
+        watch(nc, NSMenu.didBeginTrackingNotification) { $0.menuTracking(true) }
+        watch(nc, NSMenu.didEndTrackingNotification) { $0.menuTracking(false) }
         elementWatcher.onUpdate = { [weak self] rects in self?.updateElements(rects) }
+        vision.onUpdate = { [weak self] frame, rects in self?.updateVision(frame, rects) }
         attentionWatcher.onChange = { [weak self] point, _ in self?.updateAttention(point) }
         eventSink = { _, event in Self.playSound(for: event) }
         observeStore()
@@ -162,6 +190,7 @@ final class RoamCoordinator {
 
     private func screensChanged() {
         for pet in pets.values { pet.screen = screen(id: pet.screen.id) ?? pet.screen }
+        vision.screensChanged()
         requestSnapshot()
     }
 
@@ -196,6 +225,8 @@ final class RoamCoordinator {
     private func updateSenses() {
         let shown = pets.values.filter { !$0.hidden }
         let wantElements = shown.contains { $0.walkOnWindows }
+        // Accessibility may be granted after the watcher first gave up, so keep offering it the chance.
+        if wantElements, scanningElements { elementWatcher.start() }
         let wantAttention = shown.contains { $0.mode == .curious }
         if wantElements != scanningElements {
             scanningElements = wantElements
@@ -246,6 +277,11 @@ final class RoamCoordinator {
     private func refresh(_ pet: RoamPet, widget: WidgetConfig, dock: Dock) {
         pet.mode = RoamBrain.effectiveMode(widget.roamMode, quiet: quiet)
         pet.walkOnWindows = widget.walksOnWindows
+        pet.seesLedges = widget.seesLedges
+        // The window server leaves non-shareable windows out of the Space-switch animation as well as out of
+        // recordings, so hiding is opt-in.
+        let sharing: NSWindow.SharingType = widget.hidesFromRecordings ? .none : .readOnly
+        if pet.panel.sharingType != sharing { pet.panel.sharingType = sharing }
         if let home = widget.roamHome { pet.home = home }
         let unit = CGFloat(widget.roamSize)
         if pet.driver.unit != unit { pet.driver.unit = unit }
@@ -308,25 +344,30 @@ final class RoamCoordinator {
         let frame = pet.screen.geometry.frame
         let onScreen = windows.filter { $0.frame.intersects(frame) }
         pet.bars = visibleBars(on: pet.screen)
+        let seen = pet.seesLedges ? visionLedges : []
         let surfaces = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
                                           docks: pet.bars, walkOnWindows: pet.walkOnWindows,
-                                          elements: elements.filter { $0.intersects(frame) })
+                                          elements: (elements + seen).filter { $0.intersects(frame) })
         let walls = RoamSurfaces.walls(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
                                        walkOnWindows: pet.walkOnWindows)
+        let ceilings = RoamSurfaces.ceilings(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
+                                             walkOnWindows: pet.walkOnWindows, unit: pet.unit)
         // Building routes flies every possible leap, so it only happens when something actually moved.
-        if surfaces != pet.surfaces || walls != pet.walls || pet.nav?.half != pet.unit / 2 {
+        if surfaces != pet.surfaces || walls != pet.walls || ceilings != pet.ceilings || pet.nav?.half != pet.unit / 2 {
             pet.surfaces = surfaces
             pet.walls = walls
-            pet.nav = RoamNav(ledges: surfaces, walls: walls, half: pet.unit / 2, screenMinX: frame.minX,
-                              screenMaxX: frame.maxX)
+            pet.ceilings = ceilings
+            pet.nav = RoamNav(ledges: surfaces, walls: walls, ceilings: ceilings, half: pet.unit / 2,
+                              screenMinX: frame.minX, screenMaxX: frame.maxX)
         }
     }
 
     private func environment(_ pet: RoamPet) -> RoamEnvironment {
         let frame = pet.screen.geometry.frame
-        return RoamEnvironment(surfaces: pet.surfaces, walls: pet.walls, nav: pet.nav, mode: pet.mode,
-                               home: pet.home.point, pointer: NSEvent.mouseLocation, lively: pet.driver.lively,
-                               screenMinX: frame.minX, screenMaxX: frame.maxX,
+        return RoamEnvironment(surfaces: pet.surfaces, walls: pet.walls, ceilings: pet.ceilings, nav: pet.nav,
+                               mode: pet.mode, home: pet.home.point, pointer: NSEvent.mouseLocation,
+                               lively: pet.driver.lively, screenMinX: frame.minX, screenMaxX: frame.maxX,
+                               screenMinY: frame.minY, screenMaxY: frame.maxY,
                                attention: attention.flatMap { frame.contains($0) ? $0 : nil },
                                elements: elements.filter { $0.intersects(frame) }, unit: pet.unit)
     }
@@ -359,6 +400,7 @@ final class RoamCoordinator {
         pet.state.vx = 0
         pet.state.vy = 0
         pet.state.wall = nil
+        pet.state.ceiling = nil
         pet.state.route = []
         pet.home = RoamHome(point: target.point, screenID: target.screen.id)
     }
@@ -404,7 +446,45 @@ final class RoamCoordinator {
     func updateElements(_ rects: [CGRect]) {
         guard rects != elements else { return }
         elements = rects
+        vision.markDirty()
         for pet in pets.values { rebuildSurfaces(pet) }
+    }
+
+    private func updateVision(_ frame: CGRect, _ rects: [CGRect]) {
+        let next = visionLedges.filter { !frame.intersects($0) } + rects
+        guard next != visionLedges else { return }
+        visionLedges = next
+        for pet in pets.values { rebuildSurfaces(pet) }
+    }
+
+    /// Looks at the screen of a pet that is up and moving about, if anything changed since the last look.
+    private func lookForLedges() {
+        guard let pet = pets.values.first(where: { !$0.hidden && !$0.frozen && $0.seesLedges && $0.walkOnWindows
+                                                   && RoamBrain.needsFrames($0.state) }) else { return }
+        let frame = pet.screen.geometry.frame
+        let known = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen),
+                                       windows: windows.filter { $0.frame.intersects(frame) }, docks: pet.bars,
+                                       walkOnWindows: true, elements: elements.filter { $0.intersects(frame) })
+        vision.lookIfDue(frame: frame, menuBarHeight: menuBarHeight(pet.screen), known: known)
+    }
+
+    /// Every roaming pet that is out and visible, for layers that react to it.
+    var petBodies: [RoamBody] {
+        pets.values.filter { !$0.hidden }.map { pet in
+            let s = pet.state
+            let feet = s.wall != nil && s.activity.isOnWall ? CGPoint(x: s.wall!.x, y: s.y) : pet.feet
+            let moving = s.activity == .falling || s.activity == .floating
+            return RoamBody(key: pet.key, feet: feet, velocity: moving ? CGVector(dx: s.vx, dy: s.vy) : .zero,
+                            unit: pet.driver.unit)
+        }
+    }
+
+    /// Bumps a pet, in points per second. A soft push leaves a standing or clinging pet where it is; a hard
+    /// one knocks it loose, and a pet in the air takes all of it.
+    func nudge(_ key: PetKey, impulse: CGVector) {
+        guard let pet = pets[key], !pet.hidden, !pet.frozen, carrying != key else { return }
+        emit(RoamBrain.nudge(&pet.state, impulse: impulse, env: environment(pet)), for: pet)
+        schedule(pet)
     }
 
     /// Where the person's attention is, such as the text cursor; Extra Curious pets head for it.
@@ -434,6 +514,11 @@ final class RoamCoordinator {
         carrying = key
         pet.state.activity = .carried
         pet.state.wall = nil
+        pet.state.ceiling = nil
+        pet.state.tumbling = false
+        pet.state.spin = 0
+        pet.frozen = false
+        pet.turn = nil
         pet.state.route = []
         pet.driver.carried = true
         carryTrail = []
@@ -453,11 +538,11 @@ final class RoamCoordinator {
         pet.state.y = pointer.y - pet.unit * 0.7
         let now = ProcessInfo.processInfo.systemUptime
         carryTrail.append((now, pointer))
-        carryTrail.removeAll { now - $0.time > 0.1 }
+        carryTrail.removeAll { now - $0.time > 0.08 }
         present(pet)
     }
 
-    /// The pointer's velocity over the last tenth of a second; zero if it paused before letting go.
+    /// The pointer's velocity over its last 80 ms; zero if it paused before letting go.
     private func throwVelocity() -> CGVector {
         let now = ProcessInfo.processInfo.systemUptime
         guard let first = carryTrail.first, let last = carryTrail.last, now - last.time < 0.05,
@@ -507,6 +592,28 @@ final class RoamCoordinator {
         kick()
     }
 
+    /// Holds whichever pet the pointer is over while a menu is open on it.
+    private func menuTracking(_ open: Bool) {
+        menusOpen = max(0, menusOpen + (open ? 1 : -1))
+        if open {
+            for pet in pets.values where pet.driver.hovering { freeze(pet, true) }
+        } else if menusOpen == 0 {
+            for pet in pets.values where pet.frozen { freeze(pet, false) }
+        }
+    }
+
+    private func freeze(_ pet: RoamPet, _ value: Bool) {
+        guard pet.frozen != value, carrying != pet.key else { return }
+        pet.frozen = value
+        if value {
+            stopLoop(pet)
+        } else {
+            pet.lastStep = .now
+            pet.lastPresent = .now
+            schedule(pet)
+        }
+    }
+
     private func touched(_ key: PetKey) {
         guard let pet = pets[key], pet.state.activity != .carried else { return }
         pet.holdUntil = Date.now.addingTimeInterval(3)
@@ -527,7 +634,7 @@ final class RoamCoordinator {
         let handler: (NSEvent) -> Void = { [weak self] event in
             MainActor.assumeIsolated { self?.pointerEvent(event) }
         }
-        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseUp]
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseUp, .leftMouseDown, .scrollWheel]
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in handler(event); return event }) {
             monitors.append(local)
@@ -540,6 +647,18 @@ final class RoamCoordinator {
     }
 
     private func pointerEvent(_ event: NSEvent) {
+        if event.type == .scrollWheel {
+            vision.markDirty()
+            return
+        }
+        // Pressing on a pet holds it in place until the button comes up or the press becomes a carry.
+        if event.type == .leftMouseDown {
+            for pet in pets.values where event.window === pet.panel { freeze(pet, true) }
+            return
+        }
+        if event.type == .leftMouseUp, menusOpen == 0 {
+            for pet in pets.values where pet.frozen { freeze(pet, false) }
+        }
         if let key = carrying, let pet = pets[key] {
             if event.type == .leftMouseUp {
                 endCarry()
@@ -559,8 +678,8 @@ final class RoamCoordinator {
     }
 
     private func updateHover(_ pet: RoamPet, pointer: CGPoint) {
-        let inside = RoamBrain.hits(point: pointer, middle: pet.middle, unit: pet.unit,
-                                    sideways: pet.state.activity.isOnWall)
+        let inside = RoamBrain.hits(point: pointer, middle: pet.shownMiddle ?? pet.middle, unit: pet.unit,
+                                    sideways: pet.state.activity.isOnWall && pet.state.wall != nil)
         if pet.panel.ignoresMouseEvents == inside { pet.panel.ignoresMouseEvents = !inside }
         if pet.driver.hovering != inside { pet.driver.hovering = inside }
     }
@@ -590,8 +709,8 @@ final class RoamCoordinator {
     /// A moving pet steps on every refresh of its display; a still one on a slow beat that only
     /// watches for a reason to move.
     private func schedule(_ pet: RoamPet) {
-        guard !pet.hidden, carrying != pet.key else { return stopLoop(pet) }
-        if pet.state.activity.isMoving {
+        guard !pet.hidden, !pet.frozen, carrying != pet.key else { return stopLoop(pet) }
+        if RoamBrain.needsFrames(pet.state) || pet.settling {
             pet.beat?.cancel()
             pet.beat = nil
             if pet.ticker?.running != true {
@@ -617,7 +736,7 @@ final class RoamCoordinator {
     }
 
     private func step(_ pet: RoamPet) {
-        guard !pet.hidden, pet.state.activity != .carried else { return }
+        guard !pet.hidden, !pet.frozen, pet.state.activity != .carried else { return }
         defer { schedule(pet) }
         let now = ContinuousClock.now
         let dt = min((now - pet.lastStep) / .seconds(1), 0.25)
@@ -631,6 +750,12 @@ final class RoamCoordinator {
         // Docks hide and reveal between window snapshots; the pet should not stand on one that slid away.
         if visibleBars(on: pet.screen) != pet.bars { rebuildSurfaces(pet) }
         let events = RoamBrain.step(&pet.state, dt: dt, env: environment(pet), roll: { Double.random(in: 0..<1) })
+        if pet.state.activity == .detaching, before != .detaching {
+            // The crouch before it springs off, drawn as a landing squash.
+            pet.driver.landImpact = 0.8
+            pet.driver.landAt = .now
+            pet.driver.landTick += 1
+        }
         emit(events, for: pet)
         present(pet)
         if RoamBrain.snapshotInterval(before) != RoamBrain.snapshotInterval(pet.state.activity) { kick() }
@@ -652,9 +777,45 @@ final class RoamCoordinator {
         }
     }
 
+    /// Where and at what angle to draw the pet. A change of surface swings it around the corner over a
+    /// moment instead of snapping; other changes of angle, such as a grab or the end of a tumble, ease in.
+    private func pose(_ pet: RoamPet) -> CGPoint {
+        let now = ContinuousClock.now
+        let dt = min((now - pet.lastPresent) / .seconds(1), 0.1)
+        pet.lastPresent = now
+        let middle = pet.middle
+        let target = RoamPose.angle(pet.state)
+        let attached = RoamPose.isAttached(pet.state.activity)
+        if attached, pet.wasAttached, let shown = pet.shownMiddle, pet.turn == nil,
+           abs(RoamPose.delta(from: pet.shownAngle, to: target)) >= 45 {
+            pet.turn = RoamTurn(from: shown, to: middle, fromAngle: pet.shownAngle, toAngle: target)
+            pet.turnBase = middle
+        }
+        pet.wasAttached = attached
+        var drawn = middle
+        if var turn = pet.turn, attached {
+            turn.elapsed += dt
+            let sample = turn.sample
+            drawn = CGPoint(x: sample.middle.x + middle.x - pet.turnBase.x, y: sample.middle.y + middle.y - pet.turnBase.y)
+            pet.shownAngle = sample.angle
+            pet.turn = turn.isDone ? nil : turn
+            if turn.isDone { pet.shownAngle = target }
+        } else {
+            pet.turn = nil
+            pet.shownAngle = RoamPose.settle(pet.shownAngle, toward: target, dt: dt)
+        }
+        if pet.state.activity == .floating {
+            // A slow bob, as if treading water.
+            let time = Date.now.timeIntervalSinceReferenceDate
+            drawn.y += sin(time * 2 * .pi * 0.7) * pet.unit * 0.08
+        }
+        pet.shownMiddle = drawn
+        return drawn
+    }
+
     private func present(_ pet: RoamPet) {
         let side = pet.driver.side
-        let middle = pet.middle
+        let middle = pose(pet)
         // Snapping to whole points made slow walks stutter on Retina screens; snap to pixels instead.
         let scale = pet.panel.backingScaleFactor
         let origin = NSPoint(x: ((middle.x - side / 2) * scale).rounded() / scale,
@@ -667,24 +828,25 @@ final class RoamCoordinator {
         let driver = pet.driver
         let activity = pet.state.activity
         if driver.facing != pet.state.facing { driver.facing = pet.state.facing }
-        let moving = activity == .walking || activity == .carried || activity == .climbing
+        // Swimming through the air paddles the legs like a slow walk.
+        let moving = activity == .walking || activity == .carried || activity == .climbing || activity == .floating
         if driver.moving != moving { driver.moving = moving }
-        let speed = activity == .walking || activity == .climbing ? pet.state.speed : 0
+        let speed = activity == .walking || activity == .climbing ? pet.state.speed : activity == .floating ? 40 : 0
         if driver.walkSpeed != speed { driver.walkSpeed = speed }
         if driver.climbing != activity.isOnWall { driver.climbing = activity.isOnWall }
-        let normal = activity.isOnWall ? pet.state.wall?.normal ?? 0 : 0
-        if driver.wallNormal != normal { driver.wallNormal = normal }
+        if driver.angle != pet.shownAngle { driver.angle = pet.shownAngle }
         if driver.sliding != (activity == .sliding) { driver.sliding = activity == .sliding }
         if driver.falling != (activity == .falling) { driver.falling = activity == .falling }
         if driver.sitting != (activity == .sitting) { driver.sitting = activity == .sitting }
         if driver.napping != (activity == .napping) { driver.napping = activity == .napping }
-        if !pet.hidden, carrying != pet.key { updateHover(pet, pointer: NSEvent.mouseLocation) }
+        if !pet.hidden, carrying != pet.key, !pet.frozen { updateHover(pet, pointer: NSEvent.mouseLocation) }
     }
 
     // MARK: Window snapshots
 
     private func requestSnapshot() {
         forceSnapshot = true
+        vision.markDirty()
         startSnapshotLoopIfNeeded()
         kick()
     }
@@ -742,10 +904,12 @@ final class RoamCoordinator {
         let result = await Task.detached(priority: .utility) {
             RoamSnapshot.take(frontPID: frontPID, ownPID: own, regularPIDs: regular, screens: frames)
         }.value
+        if result.windows != windows { vision.markDirty() }
         windows = result.windows
         settleFullscreen(result.fullscreen)
         for pet in pets.values { rebuildSurfaces(pet) }
         updateVisibility()
+        lookForLedges()
     }
 
     private func waitForWork() async {
@@ -771,9 +935,8 @@ struct RoamPetRoot: View {
            let widget = item.widget {
             PetWidget(item: item, widget: widget, dock: dock, size: CGSize(width: driver.side, height: driver.side),
                       state: DockViewState(dockID: dock.id, screenID: screenID), roam: driver)
-                // On a wall the whole pet turns a quarter so its feet press against it.
-                .rotationEffect(.degrees(driver.wallNormal * 90))
-                .animation(.easeOut(duration: 0.15), value: driver.wallNormal)
+                // The whole pet turns so its feet press against its wall or ceiling; the coordinator eases it.
+                .rotationEffect(.degrees(driver.angle))
         }
     }
 }

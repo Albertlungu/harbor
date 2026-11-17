@@ -258,29 +258,31 @@ import Testing
 
     // MARK: Follow
 
-    @Test func followStopsAtComfortableDistance() {
+    @Test func followFloatsToAComfortableDistance() {
         var state = RoamState(x: 100, y: 0)
         let env = environment(surfaces(), mode: .follow, pointer: CGPoint(x: 600, y: 300))
         run(&state, seconds: 8, env: env)
-        let gap = abs(600 - state.x)
-        #expect(gap >= RoamBrain.followDistance - 6 && gap <= RoamBrain.followDistance + 10)
-        #expect(state.activity != .walking)
+        #expect(state.activity == .floating)
+        let gap = hypot(600 - state.x, 300 - (state.y + 16))
+        #expect(abs(gap - RoamBrain.followDistance) < 3)
+        #expect(state.facing == 1)
     }
 
     @Test func followBacksAwayFromACursorOnTop() {
         var state = RoamState(x: 600, y: 0)
         let env = environment(surfaces(), mode: .follow, pointer: CGPoint(x: 605, y: 20))
         run(&state, seconds: 3, env: env)
-        #expect(abs(state.x - 605) >= RoamBrain.followDistance - 6)
+        #expect(hypot(state.x - 605, state.y + 16 - 20) >= RoamBrain.followDistance - 6)
     }
 
-    @Test func stillPointerMakesItSitThenNapAndMovingWakesIt() {
+    @Test func stillPointerLetsItDriftDownToNapAndMovingWakesIt() {
         var state = RoamState(x: 540, y: 0)
         var env = environment(surfaces(), mode: .follow, pointer: CGPoint(x: 600, y: 300))
         run(&state, seconds: 11, env: env)
-        #expect(state.activity == .sitting)
-        run(&state, seconds: 21, env: env)
+        #expect(state.activity == .floating)
+        run(&state, seconds: 22, env: env)
         #expect(state.activity == .napping)
+        #expect(state.y == 0)
         env.pointer = CGPoint(x: 640, y: 300)
         let events = run(&state, seconds: 0.1, env: env)
         #expect(events.contains(.woke))

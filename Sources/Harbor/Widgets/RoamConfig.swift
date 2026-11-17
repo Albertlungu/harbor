@@ -14,6 +14,8 @@ extension WidgetConfig {
     var roamSize: Double { min(max(stateDouble("roamSize") ?? 32, 24), 48) }
     var walksOnWindows: Bool { bool("roamWindows", true) }
     var staysOnOwnScreen: Bool { string("roamScreens", "all") == "own" }
+    var hidesFromRecordings: Bool { bool("roamHideFromRecordings", false) }
+    var seesLedges: Bool { bool("roamVision", true) }
 
     var roamHome: RoamHome? {
         guard case .object(let fields)? = state["roamHome"], let x = fields["x"]?.doubleValue,
@@ -47,8 +49,8 @@ final class RoamDriver {
     /// Holding a wall: climbing, clinging or sliding. The window turns the pet so its feet face the wall.
     var climbing = false
     var sliding = false
-    /// Which side of the wall the pet is on (see `RoamWall.normal`); 0 off walls.
-    var wallNormal = 0.0
+    /// How far the whole pet is turned, in degrees clockwise: a quarter on a wall, half under a ceiling.
+    var angle = 0.0
     var startleTick = 0
     var landTick = 0
     var landImpact = 0.0

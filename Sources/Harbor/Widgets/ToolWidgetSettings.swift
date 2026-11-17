@@ -72,6 +72,10 @@ private struct PetRoamSettings: View {
                 Text("All screens").tag("all")
                 Text("The dock's own screen").tag("own")
             }
+            Toggle("Hide pet in screen recordings", isOn: fields.bool("roamHideFromRecordings", false))
+            Toggle("See ledges on screen", isOn: fields.bool("roamVision", true))
+                .help("Looks at the screen now and then for long edges to stand on. Needs Screen Recording permission.")
+                .disabled(!RoamVisionScanner.isAllowed)
         }
     }
 }
