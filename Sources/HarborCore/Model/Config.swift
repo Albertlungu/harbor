@@ -114,6 +114,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
 
     public var newDocks = NewDockDefaults()
     public var previews = PreviewSettings()
+    public var weather = WeatherSettings()
 
     public init() {}
 
@@ -155,6 +156,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
         petQuiet = c(.petQuiet, d.petQuiet)
         newDocks = c(.newDocks, d.newDocks)
         previews = c(.previews, d.previews)
+        weather = c(.weather, d.weather)
     }
 }
 
