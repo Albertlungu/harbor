@@ -25,11 +25,20 @@ struct ItemContextMenu: View {
                 Button("Pin to \(dock.name)") {
                     model.store.addItems([DockItem(kind: .app, path: path)], to: dock.id)
                 }
+                dockSection
+            } else {
+                DockActions(dock: dock, editing: editing)
             }
-            dockSection
         case .item(let item):
-            itemSection(item)
-            dockSection
+            // Dividers and spacers read as empty dock space, so they lead with the dock's own menu.
+            if item.widget?.kind == .divider || item.widget?.kind == .spacer {
+                DockActions(dock: dock, editing: editing)
+                Divider()
+                itemSection(item)
+            } else {
+                itemSection(item)
+                dockSection
+            }
         }
     }
 
@@ -89,25 +98,39 @@ struct ItemContextMenu: View {
     @ViewBuilder
     private var dockSection: some View {
         Divider()
-        Menu("Harbor") {
-            Button(editing ? "Done Editing" : "Edit Dock") { model.store.setEditing(dock.id, !editing) }
-            if dock.position.mode == .floating {
-                Toggle("Lock Position", isOn: Binding(
-                    get: { dock.position.locked },
-                    set: { v in model.store.updateDock(dock.id) { $0.position.locked = v } }))
+        Menu("Harbor") { DockActions(dock: dock, editing: editing) }
+    }
+}
+
+/// Actions for a whole dock: the right-click menu on its empty space, and the Harbor submenu on its items.
+struct DockActions: View {
+    @Environment(AppModel.self) private var model
+    let dock: Dock
+    let editing: Bool
+
+    var body: some View {
+        if dock.layout == .dock {
+            Toggle("Keep Dock Shown", isOn: Binding(
+                get: { !dock.behavior.autoHide },
+                set: { v in model.store.updateDock(dock.id) { $0.behavior.autoHide = !v } }))
+        }
+        Button(editing ? "Done Editing" : "Edit Dock") { model.store.setEditing(dock.id, !editing) }
+        if dock.position.mode == .floating {
+            Toggle("Lock Position", isOn: Binding(
+                get: { dock.position.locked },
+                set: { v in model.store.updateDock(dock.id) { $0.position.locked = v } }))
+        }
+        if dock.style.collapse.enabled {
+            Button(dock.style.collapse.collapsed ? "Expand" : "Collapse") {
+                model.store.updateDock(dock.id) { $0.style.collapse.collapsed.toggle() }
             }
-            if dock.style.collapse.enabled {
-                Button(dock.style.collapse.collapsed ? "Expand" : "Collapse") {
-                    model.store.updateDock(dock.id) { $0.style.collapse.collapsed.toggle() }
-                }
-            }
-            Button("Hide Dock") { model.store.hide(dock.id, source: .menu) }
-            Divider()
-            Button("Dock Settings…") { model.openInManager(dock.id) }
-            Button("Add Widget…") {
-                model.openInManager(dock.id)
-                model.showingLibraryFor = dock.id
-            }
+        }
+        Button("Hide Dock") { model.store.hide(dock.id, source: .menu) }
+        Divider()
+        Button("Dock Settings…") { model.openInManager(dock.id) }
+        Button("Add Widget…") {
+            model.openInManager(dock.id)
+            model.showingLibraryFor = dock.id
         }
     }
 }
