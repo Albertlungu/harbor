@@ -46,6 +46,17 @@ enum DevRender {
         let palette = EffectPainter.paletteColors()
         let times = [100.0, 101.35, 102.8]
         let hours = [3.0, 7.0, 12.0, 19.0]
+        for dark in [false, true] {
+            let picker = LazyVGrid(columns: Array(repeating: GridItem(.fixed(120), spacing: 6), count: 5), spacing: 6) {
+                ForEach(EffectKind.allCases, id: \.self) { effect in
+                    EffectTile(effect: effect, on: [.snow, .aurora, .ripples].contains(effect), intensity: 0.6) {}
+                }
+            }
+            .padding(20)
+            .background(dark ? Color(white: 0.12) : Color(white: 0.96))
+            .environment(\.colorScheme, dark ? .dark : .light)
+            write(picker, dark: dark, to: out.appendingPathComponent("picker-\(dark ? "dark" : "light").png"))
+        }
         for effect in EffectKind.allCases where effect != .seasonal {
             for dark in [false, true] {
                 let strip = { (edge: ScreenEdge, t: Double, hour: Double) in
@@ -69,14 +80,18 @@ enum DevRender {
                 .padding(20)
                 .background(dark ? Color(white: 0.12) : Color(white: 0.96))
                 .environment(\.colorScheme, dark ? .dark : .light)
-                NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
-                    let renderer = ImageRenderer(content: sheet)
-                    renderer.scale = 2
-                    if let image = renderer.cgImage,
-                       let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
-                        try? data.write(to: out.appendingPathComponent("\(effect.rawValue)-\(dark ? "dark" : "light").png"))
-                    }
-                }
+                write(sheet, dark: dark, to: out.appendingPathComponent("\(effect.rawValue)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    private static func write(_ view: some View, dark: Bool, to url: URL) {
+        NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            if let image = renderer.cgImage,
+               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+                try? data.write(to: url)
             }
         }
     }
