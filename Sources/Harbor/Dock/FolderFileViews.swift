@@ -350,11 +350,11 @@ final class FolderListCoordinator: NSObject, NSTableViewDataSource, NSTableViewD
     }
 
     static let columns = [
-        Column(sort: .name, title: "Name", width: 220),
-        Column(sort: .dateModified, title: "Date Modified", width: 130),
-        Column(sort: .dateAdded, title: "Date Added", width: 130),
-        Column(sort: .size, title: "Size", width: 70),
-        Column(sort: .kind, title: "Kind", width: 110),
+        Column(sort: .name, title: "Name", width: 190),
+        Column(sort: .dateModified, title: "Date Modified", width: 120),
+        Column(sort: .dateAdded, title: "Date Added", width: 120),
+        Column(sort: .size, title: "Size", width: 64),
+        Column(sort: .kind, title: "Kind", width: 90),
     ]
 
     let model: FolderBrowserModel
@@ -363,7 +363,7 @@ final class FolderListCoordinator: NSObject, NSTableViewDataSource, NSTableViewD
     private var appliedSelection = -1
     private var applying = false
 
-    private static let dateFormat: Date.FormatStyle = .dateTime.day().month(.abbreviated).year().hour().minute()
+    private static let dateFormat = Date.FormatStyle(date: .numeric, time: .shortened)
 
     init(model: FolderBrowserModel) {
         self.model = model
@@ -544,6 +544,9 @@ struct FolderColumnsView: NSViewRepresentable {
         browser.allowsEmptySelection = true
         browser.hasHorizontalScroller = true
         browser.separatesColumns = true
+        // Column titles would draw over the toolbar; the toolbar already names the folder.
+        browser.isTitled = false
+        browser.rowHeight = 20
         browser.minColumnWidth = 170
         browser.columnResizingType = .userColumnResizing
         browser.target = coordinator

@@ -60,7 +60,7 @@ struct FolderBrowser: View {
 
     private var gallery: some View {
         VStack(spacing: 0) {
-            FolderPreview(url: model.selectedURLs.last)
+            FolderPreview(url: model.selectedURLs.last ?? model.visible.first(where: { !$0.isFolder })?.url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             FolderIconsView(model: model, strip: true)
