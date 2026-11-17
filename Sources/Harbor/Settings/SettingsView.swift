@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case personality, general, behavior, newDocks, icons, previews, permissions, backup, integrations, diagnostics
+    case personality, general, behavior, newDocks, icons, wallpapers, previews, permissions, backup, integrations, diagnostics
     var id: String { rawValue }
 
     var title: String {
@@ -14,6 +14,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .behavior: "Behavior"
         case .newDocks: "New Docks"
         case .icons: "Icon Library"
+        case .wallpapers: "Wallpapers"
         case .previews: "Window Previews"
         case .permissions: "Permissions"
         case .backup: "Backup"
@@ -29,6 +30,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .behavior: "cursorarrow.click"
         case .newDocks: "plus.rectangle.on.rectangle"
         case .icons: "photo.on.rectangle"
+        case .wallpapers: "photo.artframe"
         case .previews: "rectangle.on.rectangle"
         case .permissions: "lock.shield"
         case .backup: "externaldrive"
@@ -40,7 +42,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     var group: String {
         switch self {
         case .personality, .general, .behavior: "App"
-        case .newDocks, .icons: "Personalize"
+        case .newDocks, .icons, .wallpapers: "Personalize"
         case .previews: "Features"
         case .permissions, .backup, .integrations: "System"
         case .diagnostics: "Support"
@@ -74,6 +76,7 @@ struct SettingsView: View {
                 case .behavior: BehaviorSettings()
                 case .newDocks: NewDockSettings()
                 case .icons: IconLibrarySettings()
+                case .wallpapers: WallpaperSettings()
                 case .previews: PreviewSettingsPage()
                 case .permissions: PermissionsView()
                 case .backup: BackupSettings()

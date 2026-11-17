@@ -93,6 +93,10 @@ final class AppModel {
             windows.showManager()
         }
         if ProcessInfo.processInfo.environment["HARBOR_SETTINGS"] != nil { windows.showSettings() }
+        WallpaperStore.shared.startSeasonalChanges()
+        // HARBOR_WALLPAPERS opens the wallpaper browser, searching for its value when that isn't "1";
+        // a development aid for screenshots.
+        if ProcessInfo.processInfo.environment["HARBOR_WALLPAPERS"] != nil { WallpaperWindow.shared.show() }
     }
 
     func stop() {
