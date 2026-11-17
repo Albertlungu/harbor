@@ -370,7 +370,9 @@ final class WeatherController {
         let bars = model.dockController.windows.values.map { (screen: $0.screen.id, bar: $0.barFrame) }
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
-                RoamSnapshot.take(frontPID: frontPID, ownPID: own, screens: frames)
+                // No pid is excluded: snow settles on Harbor's own Settings and Manager windows too. The
+                // overlays, docks and pets are on other window levels, which the reading skips anyway.
+                RoamSnapshot.take(frontPID: frontPID, ownPID: -1, screens: frames)
             }.value
             self?.apply(result, bars: bars)
         }
@@ -456,6 +458,9 @@ final class WeatherController {
             pointerMoved()
             screen.world.pointerDragged(x: p.x, y: p.y)
         case .leftMouseUp:
+            // Held still before letting go: a drop, not a throw.
+            let paused = (ContinuousClock.now - pointerTime) / .seconds(1) > 0.1
+            if paused { pointerVelocity = .zero }
             screen.world.pointerUp(vx: pointerVelocity.dx, vy: pointerVelocity.dy)
             holding = nil
             let hit = screen.world.hitTest(x: p.x, y: p.y)
