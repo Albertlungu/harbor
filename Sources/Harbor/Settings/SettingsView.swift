@@ -175,6 +175,7 @@ private struct BehaviorSettings: View {
                     }
                 }
                 Toggle("Offer Move to Trash in stacks and folders", isOn: model.setting(\.showMoveToTrash))
+                Toggle("Show a hidden dock when a download finishes", isOn: model.setting(\.peekOnDownload))
             }
             Section("Dragging") {
                 Toggle("Snap floating docks to edges and the center", isOn: model.setting(\.magneticSnapping))

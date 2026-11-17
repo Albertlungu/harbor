@@ -42,6 +42,8 @@ struct DockSlotView: View {
                         .popEntrance(enabled: model.store.settings.openAnimation)
                 }
             }
+            .overlay(alignment: .topTrailing) { downloadBadge }
+            .onChange(of: downloadPulse) { signalLaunch() }
             .onChange(of: showFolder) { _, open in state.menuOpen = open }
             .onChange(of: hovered) { _, isHovered in previewHover(isHovered) }
             .accessibilityElement(children: .combine)
@@ -81,6 +83,24 @@ struct DockSlotView: View {
         switch slot {
         case .item(let item): item.displayName
         case .app(_, _, let name, _): name
+        }
+    }
+
+    /// The pinned folder's resolved path, for matching download arrivals.
+    private var folderKey: String? {
+        guard case .item(let item) = slot, item.kind == .folder, let url = item.url else { return nil }
+        return FolderWatcher.key(for: url)
+    }
+
+    private var downloadPulse: Int { folderKey.flatMap { FolderWatcher.shared.pulses[$0] } ?? 0 }
+
+    @ViewBuilder
+    private var downloadBadge: some View {
+        if let key = folderKey, let count = FolderWatcher.shared.arrivals[key], count > 0 {
+            BadgePill(text: "\(count)", iconSize: iconSize)
+                .offset(x: iconSize * 0.12, y: -iconSize * 0.12)
+                .allowsHitTesting(false)
+                .accessibilityLabel("\(count) new downloads")
         }
     }
 
@@ -169,6 +189,7 @@ struct DockSlotView: View {
         if item.kind == .app, let path = item.path, !model.running.isRunning(path: path) {
             signalLaunch()
         }
+        if item.kind == .folder, let url = item.url { FolderWatcher.shared.markSeen(url) }
         ItemActions.open(item, dock: dock, running: model.running, settings: model.store.settings) { _ in
             showFolder = true
         }

@@ -45,6 +45,7 @@ struct FolderBrowser: View {
         // A definite size: popovers in a borderless panel won't present content that sizes to zero.
         .frame(width: width)
         .onAppear(perform: load)
+        .onChange(of: FolderWatcher.shared.revision(for: folder)) { load() }
         .onKeyPress(.space) {
             if let selection { QuickLook.shared.preview(selection) }
             return .handled
