@@ -60,6 +60,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
     }
 
     private func makeWindow(title: String, size: NSSize, content: some View, autosave: String?) -> NSWindow {
+        becomeRegularApp()
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
@@ -104,7 +105,22 @@ final class WindowManager: NSObject, NSWindowDelegate {
         // Presenting resets the minimum size, so it is restored right after.
         let minimum = window?.contentMinSize ?? .zero
         defer { DispatchQueue.main.async { window?.contentMinSize = minimum } }
+        becomeRegularApp()
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// A menu-bar-only app's windows open on whatever Space is showing, even on top of another
+    /// app's fullscreen window. While one of these windows is open Harbor is a regular app instead,
+    /// so macOS opens it on a desktop and switches there. The switch has to happen before the
+    /// window is created: a window made while Harbor was menu-bar-only keeps joining fullscreen Spaces.
+    private func becomeRegularApp() {
+        if NSApp.activationPolicy() == .accessory { NSApp.setActivationPolicy(.regular) }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        let closing = notification.object as? NSWindow
+        let open = [manager, settings, onboarding, permissions].contains { $0 != nil && $0 !== closing && $0!.isVisible }
+        if !open { model?.applyPresentation() }
     }
 }
