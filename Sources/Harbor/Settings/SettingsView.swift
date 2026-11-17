@@ -145,6 +145,16 @@ private struct GeneralSettings: View {
                 }
             }
 
+            Section("Screen Corners") {
+                Toggle("Round the bottom corners of the screen", isOn: model.setting(\.roundScreenCorners))
+                if model.store.settings.roundScreenCorners {
+                    Toggle("Round the top corners too", isOn: model.setting(\.roundTopCorners))
+                    Slider(value: model.setting(\.screenCornerRadius), in: 6...32) { Text("Radius") }
+                }
+                Text("Masks the corners in black, like the rounded displays on newer MacBooks. The masks show in screenshots and recordings.")
+                    .font(.caption).foregroundStyle(Tokens.textMuted)
+            }
+
             Section("Appearance") {
                 Toggle("Always use opaque backgrounds", isOn: model.setting(\.opaqueBackgrounds))
                 if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {

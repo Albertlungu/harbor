@@ -93,6 +93,10 @@ public struct AppSettings: Codable, Hashable, Sendable {
         .shift: .nothing, .middle: .quit,
     ]
     public var hideFromScreenSharing = false
+    /// Black corner masks drawn over the screen's bottom corners, like newer MacBook displays.
+    public var roundScreenCorners = false
+    public var roundTopCorners = false
+    public var screenCornerRadius = 14.0
     /// Briefly shows an auto-hidden dock when a download lands in a folder pinned on it.
     public var peekOnDownload = true
 
@@ -145,6 +149,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
         clickGestures = c(.clickGestures, d.clickGestures)
         clickGestureActions = c(.clickGestureActions, d.clickGestureActions)
         hideFromScreenSharing = c(.hideFromScreenSharing, d.hideFromScreenSharing)
+        roundScreenCorners = c(.roundScreenCorners, d.roundScreenCorners)
+        roundTopCorners = c(.roundTopCorners, d.roundTopCorners)
+        screenCornerRadius = c(.screenCornerRadius, d.screenCornerRadius)
         peekOnDownload = c(.peekOnDownload, d.peekOnDownload)
         openAnimation = c(.openAnimation, d.openAnimation)
         openEffect = c(.openEffect, d.openEffect)

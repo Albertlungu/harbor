@@ -78,6 +78,7 @@ final class AppModel {
         // Roaming pets come back at launch even if no dock showing a pet has drawn yet.
         RoamCoordinator.shared.start(model: self)
         WeatherController.shared.start(model: self)
+        ScreenCorners.shared.start(model: self)
         AssistantBridge.shared.start(model: self)
         if store.settings.deepHideNativeDock {
             _ = nativeDock.deepHide()
