@@ -1,230 +1,222 @@
 import AppKit
 import HarborCore
-import QuickLookUI
 import SwiftUI
 
-/// Browses a folder beside the dock in a grid, list or fan.
+/// A small Finder window beside the dock: navigation, Finder's four views, sorting and search
+/// over one pinned folder, with view and sort saved on the dock item.
 struct FolderBrowser: View {
-    @Environment(AppModel.self) private var model
-    let folder: URL
-    let options: FolderOptions
     let onClose: () -> Void
+    @State private var model: FolderBrowserModel
+    private let options: FolderOptions
 
-    @State private var entries: [URL] = []
-    @State private var selection: URL?
-    @State private var denied = false
+    init(folder: URL, options: FolderOptions, save: @escaping (FolderOptions) -> Void, onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        self.options = options
+        _model = State(initialValue: FolderBrowserModel(root: folder, options: options, persist: save, close: onClose))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.m) {
-            HStack {
-                Text(folder.lastPathComponent).font(.headline)
-                Spacer()
-                Button("Open in Finder") {
-                    NSWorkspace.shared.open(folder)
-                    onClose()
-                }
-                .buttonStyle(.link)
-            }
-            if denied {
-                ContentUnavailableView {
-                    Label("Can't read this folder", systemImage: "lock")
-                } description: {
-                    Text("Allow Harbor to access it in System Settings, or open it in Finder.")
-                }
-            } else if entries.isEmpty {
-                ContentUnavailableView("Empty folder", systemImage: "folder")
-            } else {
-                switch options.layout {
-                case .grid, .columns, .gallery: grid
-                case .list: list
-                case .fan: fan
-                }
-            }
+        VStack(spacing: 0) {
+            FolderToolbar(model: model)
+            Divider()
+            content
+                .frame(height: contentHeight)
+            Divider()
+            statusBar
         }
-        .padding(Tokens.Space.l)
         // A definite size: popovers in a borderless panel won't present content that sizes to zero.
         .frame(width: width)
-        .onAppear(perform: load)
-        .onChange(of: FolderWatcher.shared.revision(for: folder)) { load() }
-        .onKeyPress(.space) {
-            if let selection { QuickLook.shared.preview(selection) }
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            onClose()
-            return .handled
-        }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            DropLoader.urls(from: providers) { urls in
-                ItemActions.move(urls, into: folder, copy: true)
-                load()
-            }
-            return true
-        }
-    }
-
-    private var width: CGFloat {
-        switch options.layout {
-        case .list: 300
-        case .fan: 300
-        case .grid, .columns, .gallery:
-            CGFloat(max(1, min(options.columns, max(entries.count, 1)))) * (CGFloat(options.iconSize) + 24 + Tokens.Space.m)
-                + Tokens.Space.l * 2
-        }
-    }
-
-    private var grid: some View {
-        let columns = Array(repeating: GridItem(.fixed(CGFloat(options.iconSize) + 24), spacing: Tokens.Space.m),
-                            count: max(1, min(options.columns, entries.count)))
-        return ScrollView {
-            LazyVGrid(columns: columns, spacing: Tokens.Space.l) {
-                ForEach(entries, id: \.self) { url in
-                    VStack(spacing: Tokens.Space.xs) {
-                        thumbnail(url, size: CGFloat(options.iconSize))
-                        if options.showNames {
-                            Text(FileManager.default.displayName(atPath: url.path)).font(.caption).lineLimit(2).multilineTextAlignment(.center)
-                        }
-                    }
-                    .padding(Tokens.Space.xs)
-                    .background(selection == url ? Tokens.accent.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                    .modifier(EntryInteractions(url: url, selection: $selection, onOpen: open, closeAfterDrag: closeAfterDrag))
-                }
-            }
-        }
-        .frame(height: min(420, gridHeight))
-    }
-
-    private var gridHeight: CGFloat {
-        let cols = max(1, min(options.columns, entries.count))
-        let rows = (entries.count + cols - 1) / cols
-        return CGFloat(rows) * (CGFloat(options.iconSize) + (options.showNames ? 44 : 16) + Tokens.Space.l)
-    }
-
-    private var list: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(entries, id: \.self) { url in
-                    HStack {
-                        thumbnail(url, size: 20)
-                        Text(FileManager.default.displayName(atPath: url.path)).lineLimit(1)
-                        Spacer()
-                    }
-                    .padding(.horizontal, Tokens.Space.s)
-                    .padding(.vertical, 3)
-                    .background(selection == url ? Tokens.accent.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 5))
-                    .modifier(EntryInteractions(url: url, selection: $selection, onOpen: open, closeAfterDrag: closeAfterDrag))
-                }
-            }
-        }
-        .frame(height: min(420, CGFloat(entries.count) * 28 + 8))
-    }
-
-    private var fan: some View {
-        VStack(alignment: .trailing, spacing: Tokens.Space.xs) {
-            ForEach(Array(entries.prefix(12).enumerated()), id: \.element) { index, url in
-                HStack {
-                    Text(FileManager.default.displayName(atPath: url.path)).font(.callout).padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(.regularMaterial, in: Capsule())
-                    thumbnail(url, size: 36)
-                }
-                .rotationEffect(.degrees(Double(index) * -1.5), anchor: .trailing)
-                .modifier(EntryInteractions(url: url, selection: $selection, onOpen: open, closeAfterDrag: closeAfterDrag))
-            }
-        }
+        .background(FolderWindowHook(model: model))
+        .onAppear { model.start() }
+        .onDisappear { model.stop() }
+        .onChange(of: options) { _, new in model.adopt(new) }
     }
 
     @ViewBuilder
-    private func thumbnail(_ url: URL, size: CGFloat) -> some View {
-        Image(nsImage: IconProvider.icon(forPath: url.path))
-            .resizable()
-            .frame(width: size, height: size)
-    }
-
-    private func open(_ url: URL) {
-        NSWorkspace.shared.open(url)
-        onClose()
-    }
-
-    private func closeAfterDrag() {
-        if options.closeAfterDragOut { onClose() }
-    }
-
-    private func load() {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey, .typeIdentifierKey]
-        let fm = FileManager.default
-        guard let urls = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
-                                                     options: options.showHidden ? [] : [.skipsHiddenFiles]) else {
-            denied = true
-            return
-        }
-        denied = false
-        entries = FolderSorting.sorted(urls, options: options)
-    }
-}
-
-enum FolderSorting {
-    static func sorted(_ urls: [URL], options: FolderOptions) -> [URL] {
-        let sorted = urls.sorted { a, b in
-            if options.foldersFirst {
-                let da = (try? a.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                let db = (try? b.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if da != db { return da }
+    private var content: some View {
+        if model.denied {
+            ContentUnavailableView {
+                Label("Can't read this folder", systemImage: "lock")
+            } description: {
+                Text("Allow Harbor to access it in System Settings, or open it in Finder.")
             }
-            switch options.sort {
-            case .name:
-                return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
-            case .kind:
-                if a.pathExtension != b.pathExtension { return a.pathExtension < b.pathExtension }
-                return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
-            default:
-                let ma = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let mb = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return ma > mb
+        } else if model.loaded && model.entries.isEmpty {
+            ContentUnavailableView("Empty folder", systemImage: "folder")
+                .contextMenu { Button("New Folder") { model.newFolder() } }
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    DropLoader.urls(from: providers) { FileOperations.transfer($0, into: model.current, move: false) }
+                    return true
+                }
+        } else {
+            switch model.options.layout {
+            case .grid: FolderIconsView(model: model)
+            case .list: FolderListView(model: model)
+            case .columns: FolderColumnsView(model: model)
+            case .gallery: gallery
+            case .fan: FolderFan(model: model)
             }
         }
-        return options.reverse ? sorted.reversed() : sorted
+    }
+
+    private var gallery: some View {
+        VStack(spacing: 0) {
+            FolderPreview(url: model.selectedURLs.last)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            FolderIconsView(model: model, strip: true)
+                .frame(height: 84)
+        }
+    }
+
+    private var statusBar: some View {
+        let total = model.visible.count
+        let selected = model.selection.count
+        return Text(selected > 0 ? "\(selected) of \(total) selected" : "\(total) item\(total == 1 ? "" : "s")")
+            .font(.caption)
+            .foregroundStyle(Tokens.textMuted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Tokens.Space.xs)
+    }
+
+    private var width: CGFloat {
+        switch model.options.layout {
+        case .list: 620
+        case .columns: 640
+        case .gallery: 600
+        case .fan: 320
+        case .grid:
+            max(480, CGFloat(min(max(model.options.columns, 2), 10)) * (CGFloat(model.options.iconSize) + 34) + 20)
+        }
+    }
+
+    private var contentHeight: CGFloat {
+        model.options.layout == .gallery ? 420 : 360
     }
 }
 
-private struct EntryInteractions: ViewModifier {
-    let url: URL
-    @Binding var selection: URL?
-    let onOpen: (URL) -> Void
-    let closeAfterDrag: () -> Void
+/// Back, forward, enclosing folder, the folder's name, view and sort pickers, search and Finder.
+private struct FolderToolbar: View {
+    @Bindable var model: FolderBrowserModel
 
-    func body(content: Content) -> some View {
-        content
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) { onOpen(url) }
-            .onTapGesture { selection = url }
-            .onDrag {
-                closeAfterDrag()
-                return NSItemProvider(object: url as NSURL)
+    var body: some View {
+        HStack(spacing: Tokens.Space.s) {
+            ControlGroup {
+                Button { model.goBack() } label: { Image(systemName: "chevron.left") }
+                    .disabled(!model.history.canGoBack)
+                    .help("Back")
+                Button { model.goForward() } label: { Image(systemName: "chevron.right") }
+                    .disabled(!model.history.canGoForward)
+                    .help("Forward")
             }
-            .contextMenu {
-                Button("Open") { onOpen(url) }
-                Button("Show in Finder") { ItemActions.reveal(url) }
-                Button("Quick Look") { QuickLook.shared.preview(url) }
+            .controlSize(.small)
+            .fixedSize()
+            Button { model.goUp() } label: { Image(systemName: "arrow.turn.left.up") }
+                .controlSize(.small)
+                .disabled(!model.canGoUp)
+                .help("Enclosing Folder")
+            Text(FileManager.default.displayName(atPath: model.current.path))
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(model.current.path)
+            Spacer(minLength: Tokens.Space.s)
+            Picker("View", selection: Binding(get: { model.options.layout == .fan ? nil : model.options.layout },
+                                              set: { layout in if let layout { model.updateOptions { $0.layout = layout } } })) {
+                Image(systemName: "square.grid.2x2").help("Icons").tag(FolderLayout?.some(.grid))
+                Image(systemName: "list.bullet").help("List").tag(FolderLayout?.some(.list))
+                Image(systemName: "rectangle.split.3x1").help("Columns").tag(FolderLayout?.some(.columns))
+                Image(systemName: "rectangle.bottomthird.inset.filled").help("Gallery").tag(FolderLayout?.some(.gallery))
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .fixedSize()
+            Menu {
+                Picker("Sort By", selection: Binding(get: { model.options.sort },
+                                                     set: { key in model.updateOptions { $0.sort = key; $0.reverse = false } })) {
+                    ForEach(FolderSort.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Picker("Order", selection: Binding(get: { model.options.ascending },
+                                                   set: { up in model.updateOptions { $0.ascending = up } })) {
+                    Text("Ascending").tag(true)
+                    Text("Descending").tag(false)
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Toggle("Folders First", isOn: Binding(get: { model.options.foldersFirst },
+                                                      set: { on in model.updateOptions { $0.foldersFirst = on } }))
+                Toggle("Show Hidden Files", isOn: Binding(get: { model.options.showHidden },
+                                                          set: { on in model.updateOptions { $0.showHidden = on } }))
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+            }
+            .menuIndicator(.hidden)
+            .controlSize(.small)
+            .fixedSize()
+            .help("Sort by \(model.options.sort.title)")
+            TextField("Search", text: $model.query)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: 110)
+            Button { model.openCurrentInFinder() } label: { Image(systemName: "macwindow") }
+                .controlSize(.small)
+                .help("Open in Finder")
+        }
+        .padding(.horizontal, Tokens.Space.m)
+        .padding(.vertical, Tokens.Space.s)
     }
 }
 
-/// Minimal Quick Look panel driver.
-@MainActor
-final class QuickLook: NSObject, QLPreviewPanelDataSource {
-    static let shared = QuickLook()
-    private var url: URL?
+/// The Dock-style fan kept from earlier versions: a short stack of the first entries.
+private struct FolderFan: View {
+    let model: FolderBrowserModel
 
-    func preview(_ url: URL) {
-        self.url = url
-        guard let panel = QLPreviewPanel.shared() else { return }
-        panel.dataSource = self
-        if panel.isVisible { panel.reloadData() } else { panel.makeKeyAndOrderFront(nil) }
+    var body: some View {
+        VStack(alignment: .trailing, spacing: Tokens.Space.xs) {
+            ForEach(Array(model.visible.prefix(12).enumerated()), id: \.element.url) { index, entry in
+                HStack {
+                    Text(entry.name).font(.callout).padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.regularMaterial, in: Capsule())
+                    Image(nsImage: IconProvider.icon(forPath: entry.url.path)).resizable().frame(width: 36, height: 36)
+                }
+                .rotationEffect(.degrees(Double(index) * -1.5), anchor: .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture { model.open([entry.url]) }
+                .onDrag {
+                    model.draggedOut()
+                    return NSItemProvider(object: entry.url as NSURL)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .padding(Tokens.Space.l)
     }
+}
 
-    nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { 1 }
+/// Hands the popover's window to the model once it exists, for its keyboard shortcuts.
+private struct FolderWindowHook: NSViewRepresentable {
+    let model: FolderBrowserModel
 
-    nonisolated func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        MainActor.assumeIsolated { url as NSURL? }
+    func makeNSView(context: Context) -> NSView { HookView(model: model) }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    final class HookView: NSView {
+        let model: FolderBrowserModel
+
+        init(model: FolderBrowserModel) {
+            self.model = model
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            model.installKeyMonitor(for: window)
+            window.makeKey()
+        }
     }
 }
