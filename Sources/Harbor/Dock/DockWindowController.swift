@@ -398,6 +398,12 @@ final class DockWindowController {
         }
     }
 
+    /// Brings an auto-hidden dock out for a few seconds, e.g. when a download lands in one of its folders.
+    func peek(duration: Double) {
+        guard autoHidden else { return }
+        revealFromHotkey(duration: duration)
+    }
+
     /// Shows an auto-hidden dock after a hotkey, keeping it up for `duration` seconds (0 = until pointer leaves).
     func revealFromHotkey(duration: Double) {
         autoHidden = false

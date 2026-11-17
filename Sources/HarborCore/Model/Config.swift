@@ -93,6 +93,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
         .shift: .nothing, .middle: .quit,
     ]
     public var hideFromScreenSharing = false
+    /// Briefly shows an auto-hidden dock when a download lands in a folder pinned on it.
+    public var peekOnDownload = true
 
     // Feel
     public var openAnimation = true
@@ -140,6 +142,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
         clickGestures = c(.clickGestures, d.clickGestures)
         clickGestureActions = c(.clickGestureActions, d.clickGestureActions)
         hideFromScreenSharing = c(.hideFromScreenSharing, d.hideFromScreenSharing)
+        peekOnDownload = c(.peekOnDownload, d.peekOnDownload)
         openAnimation = c(.openAnimation, d.openAnimation)
         openEffect = c(.openEffect, d.openEffect)
         openSound = c(.openSound, d.openSound)

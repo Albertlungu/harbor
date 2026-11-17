@@ -20,16 +20,18 @@ struct TimerWidget: View {
 
     var body: some View {
         let unit = Tokens.Tool.unit(size)
+        let look = Appearance.shared
+        let accent = look.dockAccent(for: .timer)
         // Paused while idle so a stopped timer costs no redraws.
         TimelineView(.animation(minimumInterval: 0.25, paused: end == nil)) { context in
             let remaining = end.map { TimerLogic.remaining(end: $0, now: context.date) } ?? total
             let progress = end.map { TimerLogic.progress(end: $0, now: context.date, total: total) } ?? 1
             let finished = end != nil && remaining == 0
             ZStack {
-                Circle().stroke(Tokens.Tool.ringTrack, lineWidth: Tokens.Tool.ringWidth(unit))
+                Circle().stroke(look.themesDocks ? accent.opacity(0.25) : Tokens.Tool.ringTrack, lineWidth: Tokens.Tool.ringWidth(unit))
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(finished ? Tokens.success : Tokens.accent,
+                    .stroke(finished ? Tokens.success : accent,
                             style: StrokeStyle(lineWidth: Tokens.Tool.ringWidth(unit), lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 VStack(spacing: 0) {

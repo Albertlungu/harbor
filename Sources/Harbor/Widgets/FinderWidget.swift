@@ -58,7 +58,7 @@ struct FinderWidget: View {
             .overlay(alignment: .bottom) {
                 if widget.bool("showRunningDot", true) && running {
                     Circle()
-                        .fill(model.store.settings.indicatorColor?.color ?? Tokens.indicator)
+                        .fill(model.store.settings.indicatorColor?.color ?? Appearance.shared.indicator)
                         .frame(width: Tokens.Dock.indicatorSize, height: Tokens.Dock.indicatorSize)
                         .offset(y: Tokens.Dock.indicatorSize + 2)
                         .accessibilityHidden(true)

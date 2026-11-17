@@ -58,8 +58,25 @@ final class NativeDock {
     // MARK: Deep hide
 
     private static let savedKey = "nativeDockSaved"
+    private static let hiddenDelay = 9999.0
 
-    /// Pushes the native Dock out of the way with a 9999-second auto-hide delay, saving prior values.
+    /// One detached shell runs the writes, reads them back and only then restarts the Dock,
+    /// so the Dock never relaunches before cfprefsd holds the new values.
+    private static let hideScript = """
+        defaults write com.apple.dock autohide -bool true
+        defaults write com.apple.dock autohide-delay -float 9999
+        [ "$(defaults read com.apple.dock autohide)" = 1 ] || exit 1
+        [ "$(defaults read com.apple.dock autohide-delay)" = 9999 ] || exit 1
+        killall Dock
+        exit 0
+        """
+
+    private var guardObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+    private var guardTimer: Timer?
+    private var lastReassert: Date = .distantPast
+
+    /// Pushes the native Dock out of the way with a 9999-second auto-hide delay, saving prior values,
+    /// then keeps watching so the delay is put back if anything else resets it.
     func deepHide() -> Bool {
         let defaults = UserDefaults.standard
         if defaults.dictionary(forKey: Self.savedKey) == nil {
@@ -69,40 +86,85 @@ final class NativeDock {
             if let delay = current["autohide-delay"] { saved["autohide-delay"] = delay }
             defaults.set(saved, forKey: Self.savedKey)
         }
-        return run(["write", "com.apple.dock", "autohide", "-bool", "true"])
-            && run(["write", "com.apple.dock", "autohide-delay", "-float", "9999"])
-            && restartDock()
+        let ok = shell(Self.hideScript)
+        lastReassert = Date()
+        startGuard()
+        return ok
     }
 
     /// True when the macOS Dock is still hidden by an earlier session, e.g. after a crash.
     var isHiddenByHarbor: Bool { UserDefaults.standard.dictionary(forKey: Self.savedKey) != nil }
 
+    /// Whether the Dock's live preferences, as cfprefsd serves them rather than the possibly
+    /// stale file on disk, still hold the deep-hide values.
+    var isDeepHidden: Bool {
+        let domain = "com.apple.dock" as CFString
+        CFPreferencesAppSynchronize(domain)
+        let autohide = CFPreferencesCopyAppValue("autohide" as CFString, domain) as? Bool ?? false
+        let delay = (CFPreferencesCopyAppValue("autohide-delay" as CFString, domain) as? NSNumber)?.doubleValue ?? 0
+        return autohide && delay >= Self.hiddenDelay
+    }
+
     /// Restores what `deepHide` saved.
     func restore() -> Bool {
+        stopGuard()
         guard let saved = UserDefaults.standard.dictionary(forKey: Self.savedKey) else { return true }
-        var ok = run(["write", "com.apple.dock", "autohide", "-bool", (saved["autohide"] as? Bool ?? false) ? "true" : "false"])
-        if let delay = saved["autohide-delay"] as? Double {
-            ok = ok && run(["write", "com.apple.dock", "autohide-delay", "-float", String(delay)])
-        } else {
-            ok = ok && run(["delete", "com.apple.dock", "autohide-delay"])
-        }
+        let autohide = (saved["autohide"] as? Bool ?? false) ? "true" : "false"
+        let delay = (saved["autohide-delay"] as? NSNumber).map { "defaults write com.apple.dock autohide-delay -float \($0.doubleValue)" }
+            ?? "defaults delete com.apple.dock autohide-delay 2>/dev/null"
+        let ok = shell("""
+            defaults write com.apple.dock autohide -bool \(autohide)
+            \(delay)
+            killall Dock
+            exit 0
+            """)
         UserDefaults.standard.removeObject(forKey: Self.savedKey)
-        return ok && restartDock()
+        return ok
     }
 
-    private func restartDock() -> Bool {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        task.arguments = ["Dock"]
-        return (try? task.run()) != nil
+    /// System Settings, other utilities or a macOS update can rewrite the Dock's preferences while
+    /// Harbor runs; the delay was found reset to 5 seconds, which let the Dock slide up under the
+    /// bottom docks. Checks are cheap reads; the Dock only restarts on real drift.
+    private func startGuard() {
+        guard guardTimer == nil else { return }
+        guardTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reassertIfNeeded() }
+        }
+        let check: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.reassertIfNeeded() }
+        }
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            guardObservers.append((ws, ws.addObserver(forName: name, object: nil, queue: .main, using: check)))
+        }
+        let nc = NotificationCenter.default
+        guardObservers.append((nc, nc.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                  object: nil, queue: .main, using: check)))
     }
 
-    private func run(_ args: [String]) -> Bool {
+    private func stopGuard() {
+        guardTimer?.invalidate()
+        guardTimer = nil
+        for observer in guardObservers { observer.center.removeObserver(observer.token) }
+        guardObservers.removeAll()
+    }
+
+    private func reassertIfNeeded() {
+        // Restarting the Dock in a loop would be worse than it showing, so drift is corrected
+        // at most twice a minute.
+        guard !isDeepHidden, Date().timeIntervalSince(lastReassert) > 30 else { return }
+        lastReassert = Date()
+        _ = shell(Self.hideScript)
+    }
+
+    private func shell(_ script: String) -> Bool {
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        task.arguments = args
+        task.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        task.arguments = ["-c", script]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
         guard (try? task.run()) != nil else { return false }
         task.waitUntilExit()
-        return task.terminationStatus == 0 || args.first == "delete"
+        return task.terminationStatus == 0
     }
 }

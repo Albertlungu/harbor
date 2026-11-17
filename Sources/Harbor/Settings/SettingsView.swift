@@ -75,7 +75,7 @@ struct SettingsView: View {
                 case .newDocks: NewDockSettings()
                 case .icons: IconLibrarySettings()
                 case .previews: PreviewSettingsPage()
-                case .permissions: PermissionsSettings()
+                case .permissions: PermissionsView()
                 case .backup: BackupSettings()
                 case .integrations: IntegrationsSettings()
                 case .diagnostics: DiagnosticsSettings()
@@ -175,6 +175,7 @@ private struct BehaviorSettings: View {
                     }
                 }
                 Toggle("Offer Move to Trash in stacks and folders", isOn: model.setting(\.showMoveToTrash))
+                Toggle("Show a hidden dock when a download finishes", isOn: model.setting(\.peekOnDownload))
             }
             Section("Dragging") {
                 Toggle("Snap floating docks to edges and the center", isOn: model.setting(\.magneticSnapping))
@@ -389,62 +390,6 @@ private struct PreviewSettingsPage: View {
             }
             .disabled(!on)
         }
-    }
-}
-
-private struct PermissionsSettings: View {
-    @State private var tick = 0
-
-    var body: some View {
-        Form {
-            Section {
-                row("Accessibility",
-                    use: "Bringing back a specific window, minimizing, stepping through windows, and keeping windows off docks.",
-                    missing: "Clicking an app just switches to it.",
-                    granted: WindowControl.isTrusted,
-                    request: { WindowControl.requestTrust() },
-                    pane: "Privacy_Accessibility")
-                row("Screen Recording",
-                    use: "Window preview thumbnails.",
-                    missing: "Previews show a list of window titles instead.",
-                    granted: CGPreflightScreenCaptureAccess(),
-                    request: { CGRequestScreenCaptureAccess() },
-                    pane: "Privacy_ScreenCapture")
-                row("Automation (Finder)",
-                    use: "Emptying the Trash from the Trash widget.",
-                    missing: "The Trash widget opens the Trash in Finder to empty it there.",
-                    granted: nil,
-                    request: nil,
-                    pane: "Privacy_Automation")
-            }
-            Section {
-                Text("Harbor asks for each permission only when a feature needs it. Checks happen on this Mac and nothing is sent anywhere.")
-                    .font(.caption).foregroundStyle(Tokens.textMuted)
-                Button("Check Again") { tick += 1 }
-            }
-        }
-        .id(tick)
-    }
-
-    private func row(_ name: String, use: String, missing: String, granted: Bool?, request: (() -> Void)?, pane: String) -> some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-            HStack {
-                Text(name).font(.headline)
-                Spacer()
-                Text(granted == nil ? "Asked when first used" : granted! ? "Allowed" : "Not allowed")
-                    .font(.caption)
-                    .foregroundStyle(granted == true ? Tokens.success : Tokens.textMuted)
-            }
-            Text("Used for: \(use)").font(.callout)
-            Text("Without it: \(missing)").font(.caption).foregroundStyle(Tokens.textMuted)
-            HStack {
-                if let request, granted == false { Button("Ask macOS", action: request) }
-                Button("Open System Settings") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
-                }
-            }
-        }
-        .padding(.vertical, Tokens.Space.xs)
     }
 }
 

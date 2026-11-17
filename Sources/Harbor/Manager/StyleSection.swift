@@ -85,15 +85,20 @@ struct StyleSection: View {
                     }
                 }
                 Section("Effects") {
-                    ForEach(EffectKind.allCases, id: \.self) { effect in
-                        Toggle(effect.rawValue.capitalized, isOn: Binding(
-                            get: { dock.style.effects.contains(effect) },
-                            set: { on in
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: Tokens.Space.s)], spacing: Tokens.Space.s) {
+                        ForEach(EffectKind.allCases, id: \.self) { effect in
+                            EffectTile(effect: effect, on: dock.style.effects.contains(effect),
+                                       intensity: dock.style.effectIntensity) {
                                 model.store.updateDock(dock.id) {
-                                    if on { $0.style.effects.insert(effect) } else { $0.style.effects.remove(effect) }
+                                    if $0.style.effects.contains(effect) { $0.style.effects.remove(effect) }
+                                    else { $0.style.effects.insert(effect) }
                                 }
-                            }))
+                            }
+                        }
                     }
+                    .padding(.vertical, Tokens.Space.xs)
+                    Text("Seasonal shows \(EffectKind.seasonal(on: Date()).title.lowercased()) today. Ripples and Trail follow the pointer.")
+                        .font(.caption).foregroundStyle(Tokens.textMuted)
                     if !dock.style.effects.isEmpty {
                         ValueSlider(title: "Intensity", value: dock[binding: model, \.style.effectIntensity], range: 0...1,
                                     format: "%.1f")
@@ -280,6 +285,42 @@ struct StyleSection: View {
                 if let theme = ThemeFiles.importTheme() { model.store.updateThemes { $0.append(theme) } }
             }
         }
+    }
+}
+
+/// A toggle for one effect, with a small live preview of it.
+struct EffectTile: View {
+    let effect: EffectKind
+    let on: Bool
+    let intensity: Double
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            VStack(spacing: Tokens.Space.xs) {
+                EffectsView(effects: [effect], intensity: max(intensity, 0.4), demo: true, frameRate: 20)
+                    .frame(height: 34)
+                    .background(Color(white: 0.09))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                HStack(spacing: 4) {
+                    Image(systemName: effect.symbol)
+                    Text(effect.title).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(on ? Tokens.accent : Tokens.textMuted)
+                }
+                .font(.caption)
+                .foregroundStyle(Tokens.text)
+            }
+            .padding(6)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Tokens.surface))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(on ? Tokens.accent : Color.clear, lineWidth: 1.5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(effect.title)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

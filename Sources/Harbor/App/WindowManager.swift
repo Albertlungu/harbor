@@ -9,6 +9,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private var manager: NSWindow?
     private var settings: NSWindow?
     private var onboarding: NSWindow?
+    private var permissions: NSWindow?
 
     var managerWindow: NSWindow? { manager }
 
@@ -41,6 +42,16 @@ final class WindowManager: NSObject, NSWindowDelegate {
             onboarding?.styleMask.remove(.resizable)
         }
         present(onboarding)
+    }
+
+    /// `intro` explains why the window opened by itself after an install or update.
+    func showPermissions(intro: Bool = false) {
+        guard let model else { return }
+        if permissions == nil {
+            permissions = makeWindow(title: "Harbor Permissions", size: NSSize(width: 640, height: 560),
+                                     content: PermissionsView(showsIntro: intro).environment(model).harborLook(), autosave: nil)
+        }
+        present(permissions)
     }
 
     func closeOnboarding() {

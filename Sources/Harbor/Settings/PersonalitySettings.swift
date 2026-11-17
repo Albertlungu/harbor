@@ -15,8 +15,8 @@ struct PersonalitySettings: View {
                 PaletteRow()
                 PalettePreview()
                 Toggle("Colour by category", isOn: model.setting(\.categoryColors))
-                Toggle("Tint dock glass with the palette", isOn: model.setting(\.paletteGlass))
-                note("Docks with their own glass tint keep it.")
+                Toggle("Theme docks with the palette", isOn: model.setting(\.paletteGlass))
+                note("Tints dock backgrounds, borders, running dots, labels and widget accents. Colours you set yourself, like a dock's glass tint, are kept.")
             }
 
             Section("Words") {

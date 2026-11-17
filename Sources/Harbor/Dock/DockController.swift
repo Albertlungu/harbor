@@ -140,6 +140,7 @@ final class DockController {
             windows[key] = nil
         }
         updateReserve()
+        FolderWatcher.shared.sync(model: model)
         badges.setNeeded(store.docks.contains { $0.behavior.showBadges && store.isVisible($0.id) })
     }
 

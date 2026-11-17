@@ -84,6 +84,9 @@ final class AppModel {
             // A previous session ended without restoring the macOS Dock.
             _ = nativeDock.restore()
         }
+        if store.settings.onboardingDone && PermissionsGate.shouldShow(model: self) {
+            windows.showPermissions(intro: true)
+        }
         if !store.settings.onboardingDone {
             windows.showOnboarding()
         } else if store.settings.showManagerOnLaunch || store.docks.isEmpty {

@@ -152,6 +152,9 @@ struct PetWidget: View {
     @State private var pointerGaze: PetVector?
     @State private var actRunning = false
     @State private var settling = false
+    @State private var turning = false
+    @State private var strideClock = PetStrideClock()
+    @State private var turnClock = PetTurnClock()
 
     private static let lagInterval: TimeInterval = 0.08
 
@@ -159,6 +162,7 @@ struct PetWidget: View {
     private var tracksNeeds: Bool { widget.bool("needs", false) }
     private var visible: Bool { appeared && windowVisible }
     private var hour: Int { Calendar.current.component(.hour, from: .now) }
+    private var species: PetSpecies { PetAppearance(widget).species }
 
     var body: some View {
         if roam == nil, widget.isRoaming {
@@ -188,18 +192,18 @@ struct PetWidget: View {
     /// Whether anything on screen is changing, so a still roaming pet can stop producing frames.
     private var animating: Bool {
         guard let roam else { return true }
-        return roam.moving || roam.falling || roam.carried || actRunning || settling || !particles.isEmpty
+        return roam.moving || roam.falling || roam.carried || actRunning || settling || turning || !particles.isEmpty
     }
 
     private func timeline(unit: CGFloat, needs: PetNeeds) -> some View {
-        TimelineView(.animation(minimumInterval: roam == nil ? 1 / 60 : nil,
+        let look = PetLook(PetAppearance(widget))
+        return TimelineView(.animation(minimumInterval: roam == nil ? 1 / 60 : nil,
                                        paused: reduceMotion || !visible || !animating)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let shown = shownExpression(at: context.date)
             ZStack {
                 PetFigure(unit: unit, pose: pose(at: context.date, time: time, shown: shown, unit: unit),
-                          padBottom: tracksNeeds && roam == nil)
-                    .scaleEffect(x: roam?.facing ?? 1, y: 1)
+                          padBottom: tracksNeeds && roam == nil, look: look)
                 if shown == .asleep {
                     PetSnoreBubble(unit: unit, time: time).offset(x: unit * 0.07, y: unit * 0.1)
                     PetSleepLetters(unit: unit, time: time, animated: !reduceMotion)
@@ -249,6 +253,14 @@ struct PetWidget: View {
         .onChange(of: roam?.pointerTick) { updatePointer() }
         .onChange(of: roam?.startleTick) { startAct(.startle) }
         .onChange(of: roam?.napping) { refresh() }
+        .onChange(of: roam?.moving) {
+            // Keep frames coming while the head swings back to face the viewer after a walk.
+            turning = true
+            Task {
+                try? await Task.sleep(for: .milliseconds(350))
+                turning = false
+            }
+        }
         .onChange(of: roam?.landTick) {
             settling = true
             Task {
@@ -472,28 +484,20 @@ struct PetWidget: View {
         return pose
     }
 
-    /// Locomotion layered over the shared pose: a waddle while walking, a squash on landing, limp flippers when held.
+    /// Walking speed in points per second, which sets the stride cadence.
+    private func walkSpeed(_ roam: RoamDriver) -> Double { roam.walkSpeed }
+
+    /// Locomotion layered over the shared pose: a directional walk, a squash on landing, limp limbs when held.
     private func applyRoamMotion(_ pose: inout PetPose, roam: RoamDriver, date: Date, time: Double, unit: CGFloat) {
-        if roam.moving, !roam.carried {
-            let step = time * 2 * .pi * (roam.lively ? 3.0 : 2.2)
-            pose.offset.height -= abs(sin(step)) * unit * 0.035
-            pose.rotation += sin(step) * 4
-            pose.flipperLeft += 18 + 18 * sin(step)
-            pose.flipperRight += 18 - 18 * sin(step)
-        }
-        if roam.falling {
-            pose.flipperLeft += 45
-            pose.flipperRight += 45
-        }
-        if roam.carried {
-            pose.flipperLeft += 40
-            pose.flipperRight += 40
-            pose.rotation += sin(time * 3) * 6
-        }
-        if roam.sitting {
-            pose.scale.height *= 0.92
-            pose.scale.width *= 1.04
-        }
+        let walking = roam.moving && !roam.carried && !roam.falling
+        let rate = walking ? PetGait.strideRate(speed: walkSpeed(roam), unit: Double(unit)) : 0
+        let species = species
+        let hopRate = species.gait == .hop ? 0.75 : 1
+        let state = PetBodyState(moving: roam.moving, falling: roam.falling, carried: roam.carried,
+                                 sitting: roam.sitting, napping: roam.napping, facing: roam.facing,
+                                 phase: strideClock.advance(to: time, rate: rate * hopRate), time: time)
+        pose.turn = turnClock.value(at: time, target: walking ? roam.facing * PetLocomotion.walkTurn : 0)
+        PetLocomotion.apply(&pose, state, species: species, unit: unit)
         let landed = date.timeIntervalSince(roam.landAt) / 0.35
         if landed >= 0, landed < 1 {
             let squash = roam.landImpact * 0.28 * sin(landed * .pi)
