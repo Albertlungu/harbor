@@ -225,8 +225,8 @@ public enum RoamBrain {
         }
     }
 
-    /// Seconds between brain steps and frames, or nil when nothing is moving and a slow beat will do.
-    public static func frameInterval(_ activity: RoamActivity) -> Double? { activity.isMoving ? 1.0 / 30 : nil }
+    /// Seconds between brain steps while still; a moving pet steps on every display refresh instead.
+    public static func idleInterval(_ activity: RoamActivity) -> Double { activity == .napping ? 1 : 0.5 }
 
     /// The pet's body is an ellipse standing on its feet; `feet` is the bottom center.
     public static func hits(point: CGPoint, feet: CGPoint, unit: Double) -> Bool {

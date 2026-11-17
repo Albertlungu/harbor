@@ -48,7 +48,8 @@ private final class RoamPet {
     var bars: [CGRect] = []
     var walkOnWindows = true
     var hidden = true
-    var task: Task<Void, Never>?
+    var ticker: RoamTicker?
+    var beat: Task<Void, Never>?
     var lastStep = ContinuousClock.now
     var holdUntil = Date.distantPast
 
@@ -176,6 +177,9 @@ final class RoamCoordinator {
             .environment(model))
         host.sizingOptions = []
         pet.panel.contentView = host
+        pet.ticker = RoamTicker(view: host) { [weak self, weak pet] in
+            if let self, let pet { self.step(pet) }
+        }
         pets[key] = pet
         refresh(pet, widget: widget, dock: dock)
     }
@@ -201,7 +205,8 @@ final class RoamCoordinator {
 
     private func remove(_ key: PetKey) {
         guard let pet = pets.removeValue(forKey: key) else { return }
-        pet.task?.cancel()
+        stopLoop(pet)
+        pet.ticker?.invalidate()
         pet.panel.orderOut(nil)
         pet.panel.contentView = nil
         if carrying == key { carrying = nil }
@@ -338,8 +343,7 @@ final class RoamCoordinator {
         carrying = key
         pet.state.activity = .carried
         pet.driver.carried = true
-        pet.task?.cancel()
-        pet.task = nil
+        stopLoop(pet)
         pet.panel.ignoresMouseEvents = false
         pet.panel.orderFrontRegardless()
         moveCarried(pet)
@@ -389,7 +393,7 @@ final class RoamCoordinator {
         pet.home = RoamHome(point: pet.feet, screenID: pet.screen.id)
         WidgetFields(model: model, itemID: key.item, dockID: key.dock).setStates(["roamHome": pet.home.json])
         pet.driver.moving = true
-        if !pet.hidden { startLoop(pet) }
+        schedule(pet)
         kick()
     }
 
@@ -455,36 +459,50 @@ final class RoamCoordinator {
             guard hide != pet.hidden else { continue }
             pet.hidden = hide
             if hide {
-                pet.task?.cancel()
-                pet.task = nil
+                stopLoop(pet)
                 pet.panel.orderOut(nil)
             } else {
                 present(pet)
                 pet.panel.orderFrontRegardless()
-                if carrying != pet.key { startLoop(pet) }
+                schedule(pet)
             }
         }
     }
 
     // MARK: Motion
 
-    private func startLoop(_ pet: RoamPet) {
-        pet.task?.cancel()
-        pet.lastStep = .now
-        pet.task = Task { [weak self, weak pet] in
-            while !Task.isCancelled {
-                guard let pet else { return }
-                let activity = pet.state.activity
-                let wait = RoamBrain.frameInterval(activity) ?? (activity == .napping ? 1.0 : 0.5)
-                try? await Task.sleep(for: .seconds(wait))
-                guard !Task.isCancelled else { return }
-                self?.step(pet)
+    /// A moving pet steps on every refresh of its display; a still one on a slow beat that only
+    /// watches for a reason to move.
+    private func schedule(_ pet: RoamPet) {
+        guard !pet.hidden, carrying != pet.key else { return stopLoop(pet) }
+        if pet.state.activity.isMoving {
+            pet.beat?.cancel()
+            pet.beat = nil
+            if pet.ticker?.running != true {
+                pet.lastStep = .now
+                pet.ticker?.running = true
+            }
+        } else if pet.beat == nil {
+            pet.ticker?.running = false
+            pet.beat = Task { [weak self, weak pet] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(RoamBrain.idleInterval(pet?.state.activity ?? .resting)))
+                    guard !Task.isCancelled, let pet else { return }
+                    self?.step(pet)
+                }
             }
         }
     }
 
+    private func stopLoop(_ pet: RoamPet) {
+        pet.ticker?.running = false
+        pet.beat?.cancel()
+        pet.beat = nil
+    }
+
     private func step(_ pet: RoamPet) {
         guard !pet.hidden, pet.state.activity != .carried else { return }
+        defer { schedule(pet) }
         let now = ContinuousClock.now
         let dt = min((now - pet.lastStep) / .seconds(1), 0.25)
         pet.lastStep = now
@@ -515,7 +533,10 @@ final class RoamCoordinator {
     private func present(_ pet: RoamPet) {
         let side = pet.driver.side
         let margin = (side - pet.driver.unit) / 2
-        let origin = NSPoint(x: (pet.state.x - side / 2).rounded(), y: (pet.state.y - margin).rounded())
+        // Snapping to whole points made slow walks stutter on Retina screens; snap to pixels instead.
+        let scale = pet.panel.backingScaleFactor
+        let origin = NSPoint(x: ((pet.state.x - side / 2) * scale).rounded() / scale,
+                             y: ((pet.state.y - margin) * scale).rounded() / scale)
         if pet.panel.frame.size != CGSize(width: side, height: side) {
             pet.panel.setContentSize(CGSize(width: side, height: side))
         }

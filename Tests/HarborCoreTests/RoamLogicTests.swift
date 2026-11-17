@@ -293,8 +293,8 @@ import Testing
         #expect(RoamBrain.snapshotInterval(.walking) == 0.5)
         #expect(RoamBrain.snapshotInterval(.sitting) == 2)
         #expect(RoamBrain.snapshotInterval(.napping) == nil)
-        #expect(RoamBrain.frameInterval(.walking) == 1.0 / 30)
-        #expect(RoamBrain.frameInterval(.resting) == nil)
+        #expect(RoamBrain.idleInterval(.resting) == 0.5)
+        #expect(RoamBrain.idleInterval(.napping) == 1)
     }
 
     @Test func hitTestFollowsTheEllipseNotTheSquare() {

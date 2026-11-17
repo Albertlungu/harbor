@@ -192,7 +192,7 @@ struct PetWidget: View {
     }
 
     private func timeline(unit: CGFloat, needs: PetNeeds) -> some View {
-        TimelineView(.animation(minimumInterval: roam == nil ? 1 / 60 : 1 / 30,
+        TimelineView(.animation(minimumInterval: roam == nil ? 1 / 60 : nil,
                                        paused: reduceMotion || !visible || !animating)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let shown = shownExpression(at: context.date)

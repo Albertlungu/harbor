@@ -25,7 +25,7 @@ everything else is a default chosen to test by eye.
 | falling | constant gravity, a small squash on landing, the screen bottom as the floor |
 | surfaces | menu bar bottom edge, top edges of normal windows, dock tops, screen bottom |
 | window polling | window list off the main thread at 2 Hz while walking, 0.5 Hz while resting, none while asleep |
-| frame rate | 30 fps while moving, no frames while still except blinks |
+| frame rate | the display refresh rate while moving (display link), no frames while still except blinks |
 | clicks | only the pet's own shape takes clicks; everything else passes through |
 | never | steal or block the cursor, cover the focused window's title bar, pop up uninvited, multiply |
 | hide | in fullscreen apps, during screen sharing and recording (sharing type none), and while the screen is locked |
