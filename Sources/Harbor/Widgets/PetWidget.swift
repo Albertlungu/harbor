@@ -160,7 +160,10 @@ struct PetWidget: View {
 
     private var fields: WidgetFields { WidgetFields(model: model, itemID: item.id, dockID: dock.id) }
     private var tracksNeeds: Bool { widget.bool("needs", false) }
-    private var visible: Bool { appeared && windowVisible }
+    private var visible: Bool { appeared && windowVisible && !dockHidden }
+    /// An auto-hidden dock keeps its window on screen and only slides or fades its content away, so the
+    /// window still counts as visible; without this the pet went on drawing every frame out of sight.
+    private var dockHidden: Bool { roam == nil && (state.hideOffset != .zero || state.contentOpacity == 0) }
     private var hour: Int { Calendar.current.component(.hour, from: .now) }
     private var species: PetSpecies { PetAppearance(widget).species }
 

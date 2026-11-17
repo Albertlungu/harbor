@@ -904,10 +904,12 @@ final class RoamCoordinator {
         let frames = NSScreen.screens.map(\.frame)
         // Harbor's own Manager and Settings windows hide edges behind them like any other window; its docks,
         // pets and overlays sit above the normal window layer, so the reading never sees them.
-        let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-            .map(\.processIdentifier)).union([own])
         let result = await Task.detached(priority: .utility) {
-            RoamSnapshot.take(frontPID: frontPID, ownPID: -1, regularPIDs: regular, screens: frames)
+            // Reading each app's activation policy asks Launch Services one app at a time, which held the main
+            // thread for tens of milliseconds on every snapshot.
+            let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+                .map(\.processIdentifier)).union([own])
+            return RoamSnapshot.take(frontPID: frontPID, ownPID: -1, regularPIDs: regular, screens: frames)
         }.value
         if result.windows != windows { vision.markDirty() }
         windows = result.windows

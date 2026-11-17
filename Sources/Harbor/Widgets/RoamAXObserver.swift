@@ -9,33 +9,62 @@ final class RoamAXObserver {
 
     let pid: pid_t
     private var observer: AXObserver?
+    private var invalidated = false
     private let handler: Handler
 
-    init?(pid: pid_t, notifications: [String], handler: @escaping Handler) {
+    private struct Registered: @unchecked Sendable { let observer: AXObserver }
+    private struct Event: @unchecked Sendable {
+        let element: AXUIElement
+        let name: String
+    }
+    private static let registration = DispatchQueue(label: "harbor.roam.ax-register", qos: .utility)
+
+    /// Notifications start arriving once registration finishes; an app that never answers simply stays silent.
+    init(pid: pid_t, notifications: [String], handler: @escaping Handler) {
         self.pid = pid
         self.handler = handler
+        let refcon = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+        // Each registration is a synchronous round trip to the app, and a busy app held the main thread
+        // for a third of a second on every app switch, so it happens on a background queue.
+        Self.registration.async { [weak self] in
+            guard let created = Self.register(pid: pid, notifications: notifications, refcon: refcon) else { return }
+            let registered = Registered(observer: created)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.attach(registered.observer) }
+            }
+        }
+    }
+
+    private nonisolated static func register(pid: pid_t, notifications: [String], refcon: UInt) -> AXObserver? {
         var created: AXObserver?
         let callback: AXObserverCallback = { _, element, name, refcon in
             guard let refcon else { return }
             let target = Unmanaged<RoamAXObserver>.fromOpaque(refcon).takeUnretainedValue()
             // The run loop source sits on the main run loop, so the callback is already on the main thread.
-            MainActor.assumeIsolated { target.handler(element, name as String) }
+            let event = Event(element: element, name: name as String)
+            MainActor.assumeIsolated { target.handler(event.element, event.name) }
         }
-        guard AXObserverCreate(pid, callback, &created) == .success, let created else { return nil }
-        observer = created
+        guard AXObserverCreate(pid, callback, &created) == .success, let created,
+              let pointer = UnsafeMutableRawPointer(bitPattern: refcon) else { return nil }
         let app = AXUIElementCreateApplication(pid)
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        AXUIElementSetMessagingTimeout(app, 1)
         var added = 0
-        for name in notifications where AXObserverAddNotification(created, app, name as CFString, refcon) == .success {
+        for name in notifications where AXObserverAddNotification(created, app, name as CFString, pointer) == .success {
             added += 1
         }
-        guard added > 0 else { return nil }
+        return added > 0 ? created : nil
+    }
+
+    private func attach(_ created: AXObserver) {
+        guard !invalidated else { return }
+        observer = created
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .defaultMode)
     }
 
     isolated deinit { invalidate() }
 
     func invalidate() {
+        invalidated = true
         guard let observer else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
         self.observer = nil
