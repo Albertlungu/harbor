@@ -2,19 +2,20 @@ import CoreGraphics
 import Foundation
 
 public enum RoamMode: String, CaseIterable, Sendable {
-    case patrol, hangOut, follow
+    case patrol, hangOut, follow, curious
 
     public var title: String {
         switch self {
         case .patrol: "Patrol"
         case .hangOut: "Hang Out"
         case .follow: "Follow the Pointer"
+        case .curious: "Extra Curious"
         }
     }
 }
 
 public enum RoamSurfaceKind: Equatable, Sendable {
-    case menuBar, window, dockBar, floor
+    case menuBar, window, dockBar, floor, element
 }
 
 /// A horizontal ledge the pet can stand on. `y` is the walking line in AppKit coordinates (y up).
@@ -32,6 +33,29 @@ public struct RoamSurface: Equatable, Sendable {
     }
 
     public func contains(x: Double) -> Bool { x >= minX && x <= maxX }
+}
+
+public enum RoamWallKind: Equatable, Sendable {
+    case screen, window
+}
+
+/// A vertical edge the pet can climb, at `x` from `minY` to `maxY` in AppKit coordinates.
+public struct RoamWall: Equatable, Sendable {
+    public var kind: RoamWallKind
+    public var x: Double
+    public var minY: Double
+    public var maxY: Double
+    /// Which side the pet hangs on: -1 left of the line (a window's left edge), 1 right of it
+    /// (the screen's left side). The pet's feet point the other way, at the wall.
+    public var normal: Double
+
+    public init(kind: RoamWallKind, x: Double, minY: Double, maxY: Double, normal: Double) {
+        self.kind = kind
+        self.x = x
+        self.minY = minY
+        self.maxY = maxY
+        self.normal = normal
+    }
 }
 
 /// A window of another app in AppKit coordinates. Lists are ordered front to back.
@@ -66,8 +90,10 @@ public enum RoamSurfaces {
 
     /// Every ledge on one screen. Window tops hidden behind a window in front, or under the focused
     /// window's title bar, are cut away; the floor and menu bar edge are never occluded.
+    /// `elements` are notable controls inside windows; their top edges are ledges too, hidden behind any
+    /// window in front of the window that holds them.
     public static func build(screen: CGRect, menuBarHeight: Double, windows: [RoamWindow], docks: [CGRect],
-                             walkOnWindows: Bool) -> [RoamSurface] {
+                             walkOnWindows: Bool, elements: [CGRect] = []) -> [RoamSurface] {
         var result = [RoamSurface(kind: .floor, y: screen.minY, minX: screen.minX, maxX: screen.maxX)]
         let menuY = screen.maxY - menuBarHeight
         let zone = titleZone(windows)
@@ -103,6 +129,16 @@ public enum RoamSurfaces {
                     occluders: windows[..<index].map(\.frame))
             }
         }
+        if walkOnWindows {
+            for element in elements {
+                let top = element.maxY
+                guard top <= menuY + edgeSlack, top > screen.minY + edgeSlack,
+                      element.maxX > screen.minX, element.minX < screen.maxX else { continue }
+                let owner = windows.firstIndex { $0.frame.contains(CGPoint(x: element.midX, y: element.midY)) }
+                cut(.element, y: top, span: max(element.minX, screen.minX)...min(element.maxX, screen.maxX),
+                    occluders: windows[..<(owner ?? windows.count)].map(\.frame))
+            }
+        }
         for bar in docks where bar.maxX > screen.minX && bar.minX < screen.maxX {
             let top = bar.maxY
             guard top > screen.minY + edgeSlack, top < menuY else { continue }
@@ -110,10 +146,53 @@ public enum RoamSurfaces {
         }
         return result
     }
+
+    /// Every climbable edge on one screen: the screen's sides, and the left and right edges of windows
+    /// where no window in front covers them and the pet's side of the edge is on the screen.
+    public static func walls(screen: CGRect, menuBarHeight: Double, windows: [RoamWindow],
+                             walkOnWindows: Bool) -> [RoamWall] {
+        let top = screen.maxY - menuBarHeight
+        var result = [RoamWall(kind: .screen, x: screen.minX, minY: screen.minY, maxY: top, normal: 1),
+                      RoamWall(kind: .screen, x: screen.maxX, minY: screen.minY, maxY: top, normal: -1)]
+        guard walkOnWindows else { return result }
+        for (index, window) in windows.enumerated() {
+            let frame = window.frame
+            let low = max(frame.minY, screen.minY)
+            let high = min(frame.maxY, top)
+            guard high - low >= minLength else { continue }
+            for (x, normal) in [(Double(frame.minX), -1.0), (Double(frame.maxX), 1.0)] {
+                guard x + normal * minLength > screen.minX, x + normal * minLength < screen.maxX else { continue }
+                var pieces = [low...high]
+                for blocker in windows[..<index].map(\.frame)
+                where blocker.minX + edgeSlack < x && x < blocker.maxX - edgeSlack {
+                    pieces = pieces.flatMap { piece -> [ClosedRange<Double>] in
+                        guard blocker.maxY > piece.lowerBound, blocker.minY < piece.upperBound else { return [piece] }
+                        var rest: [ClosedRange<Double>] = []
+                        if blocker.minY > piece.lowerBound { rest.append(piece.lowerBound...blocker.minY) }
+                        if blocker.maxY < piece.upperBound { rest.append(blocker.maxY...piece.upperBound) }
+                        return rest
+                    }
+                }
+                for piece in pieces where piece.upperBound - piece.lowerBound >= minLength {
+                    result.append(RoamWall(kind: .window, x: x, minY: piece.lowerBound, maxY: piece.upperBound,
+                                           normal: normal))
+                }
+            }
+        }
+        return result
+    }
 }
 
 public enum RoamPhysics {
     public static let gravity = 1400.0
+    /// The highest a jump lifts the pet's feet, about four and a half body lengths at the default size.
+    public static let maxJumpHeight = 150.0
+    /// The fastest the pet travels sideways through the air when it jumps on purpose.
+    public static let airSpeed = 300.0
+    /// Fastest throw the pet accepts, so a flick sends it flying without leaving the screen in one frame.
+    public static let maxThrowSpeed = 1800.0
+    /// How hard a pet grips a wall it slides down; it grips harder when that would not stop it in time.
+    public static let slideGrip = 1100.0
 
     /// The ledge a pet standing at (`x`, `y`) is on, if any.
     public static func ground(x: Double, y: Double, in surfaces: [RoamSurface], tolerance: Double = 1) -> RoamSurface? {
@@ -136,18 +215,101 @@ public enum RoamPhysics {
         }
         return Fall(y: nextY, speed: nextSpeed, landedOn: nil)
     }
+
+    /// The pet in the air: feet at (`x`, `y`) and velocity in points per second. After a grab,
+    /// `x` is the wall and `y` the middle of the body.
+    public struct Flight: Equatable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var vx: Double
+        public var vy: Double
+        public var landedOn: RoamSurface?
+        public var grabbed: RoamWall?
+        public var hitSide = false
+
+        public init(x: Double, y: Double, vx: Double, vy: Double) {
+            self.x = x
+            self.y = y
+            self.vx = vx
+            self.vy = vy
+        }
+    }
+
+    /// One step of flight. Ledges catch the pet only on its way down, so it can jump up through one;
+    /// it grabs any of `walls` its side meets from the open side; the screen's sides stop it.
+    public static func fly(_ flight: Flight, dt: Double, surfaces: [RoamSurface], walls: [RoamWall], half: Double,
+                           minX: Double, maxX: Double) -> Flight {
+        var next = Flight(x: flight.x + flight.vx * dt, y: flight.y, vx: flight.vx, vy: flight.vy - gravity * dt)
+        next.y = flight.y + (flight.vy + next.vy) / 2 * dt
+
+        var grab: (wall: RoamWall, t: Double, middle: Double)?
+        for wall in walls {
+            let line = wall.x + wall.normal * half
+            let before = (flight.x - line) * wall.normal
+            let after = (next.x - line) * wall.normal
+            guard before >= 0, after < 0 else { continue }
+            let t = before / (before - after)
+            let middle = flight.y + (next.y - flight.y) * t + half
+            // Too near the bottom to hold on: the pet slips past instead.
+            guard middle >= wall.minY + half + 2, middle <= wall.maxY - half else { continue }
+            if grab == nil || t < grab!.t { grab = (wall, t, middle) }
+        }
+
+        var landing: (ledge: RoamSurface, t: Double)?
+        if next.y < flight.y {
+            let catches = surfaces.filter { $0.contains(x: next.x) && $0.y <= flight.y + 0.5 && $0.y >= next.y }
+            if let ledge = catches.max(by: { $0.y < $1.y }) {
+                landing = (ledge, max(0, flight.y - ledge.y) / (flight.y - next.y))
+            }
+        }
+
+        if let grab, landing.map({ grab.t <= $0.t }) ?? true {
+            var held = Flight(x: grab.wall.x, y: grab.middle, vx: 0, vy: flight.vy + (next.vy - flight.vy) * grab.t)
+            held.grabbed = grab.wall
+            return held
+        }
+        if let landing {
+            next.y = landing.ledge.y
+            next.landedOn = landing.ledge
+            return next
+        }
+        if next.x < minX || next.x > maxX {
+            next.x = min(max(next.x, minX), maxX)
+            next.vx = -next.vx * 0.3
+            next.hitSide = true
+        }
+        return next
+    }
+
+    /// Launch velocity for an aimed jump that moves the feet by (`dx`, `dy`) over an arc peaking
+    /// `clearance` above the higher end, or nil when that is beyond the pet's jump.
+    public static func launch(dx: Double, dy: Double, clearance: Double) -> (vx: Double, vy: Double)? {
+        var apex = max(dy, 0) + clearance
+        while apex <= maxJumpHeight {
+            let vy = (2 * gravity * apex).squareRoot()
+            let time = vy / gravity + (2 * (apex - dy) / gravity).squareRoot()
+            let vx = dx / time
+            if abs(vx) <= airSpeed { return (vx, vy) }
+            // A longer, higher arc buys time to cover the distance.
+            apex += 8
+        }
+        return nil
+    }
 }
 
 public enum RoamActivity: Equatable, Sendable {
-    case walking, resting, sitting, napping, falling, carried, fadingOut, fadingIn
+    /// `falling` covers all flight, jumps included. On a wall the pet is `climbing`, `sliding` or `clinging`.
+    case walking, resting, sitting, napping, falling, carried, fadingOut, fadingIn, climbing, sliding, clinging
 
     /// Whether the pet's picture changes every frame.
     public var isMoving: Bool {
         switch self {
-        case .walking, .falling, .carried, .fadingOut, .fadingIn: true
-        case .resting, .sitting, .napping: false
+        case .walking, .falling, .carried, .fadingOut, .fadingIn, .climbing, .sliding: true
+        case .resting, .sitting, .napping, .clinging: false
         }
     }
+
+    public var isOnWall: Bool { self == .climbing || self == .sliding || self == .clinging }
 }
 
 public enum RoamEvent: Equatable, Sendable {
@@ -155,20 +317,44 @@ public enum RoamEvent: Equatable, Sendable {
     case startled
     case woke
     case turned
+    case jumped
+    /// Caught a wall in flight or when dropped next to one.
+    case grabbedWall
+    /// A slide down a wall came to a stop.
+    case slid
+    /// Stepped from a ledge onto a wall to start climbing.
+    case climbed
 }
 
 public struct RoamState: Equatable, Sendable {
+    /// The feet on a ledge or in the air; on a wall, `x` is the wall and `y` the middle of the body.
     public var x: Double
     public var y: Double
-    public var fallSpeed = 0.0
-    /// 1 faces right, -1 faces left.
+    /// Velocity in flight, and the slide speed along a wall, in points per second.
+    public var vx = 0.0
+    public var vy = 0.0
+    /// 1 faces the pet's own right, -1 its left. On a wall the pet is turned so its feet face the wall,
+    /// so its right is down the wall when the wall is on its left.
     public var facing = 1.0
+    /// How fast it is walking or climbing this step, in points per second.
+    public var speed = 0.0
     public var activity: RoamActivity = .resting
     public var timeLeft = 1.0
     public var preferMenuBar = false
     public var pointerStill = 0.0
     public var lastPointer: CGPoint?
     public var alpha = 1.0
+    /// The wall held while climbing, sliding or clinging.
+    public var wall: RoamWall?
+    /// Legs still to travel, planned by `RoamNav`.
+    public var route: [RoamMove] = []
+    /// What the route was planned toward, so it is replanned only once that moves.
+    public var routeTarget: CGPoint?
+    public var replanIn = 0.0
+    /// Where a planned leap should come down; nil for a fall or a throw, which may grab any wall.
+    public var aim: RoamSpot?
+    /// Deceleration of the current slide along a wall.
+    public var grip = 0.0
 
     public init(x: Double, y: Double) {
         self.x = x
@@ -178,257 +364,39 @@ public struct RoamState: Equatable, Sendable {
 
 public struct RoamEnvironment: Sendable {
     public var surfaces: [RoamSurface]
+    public var walls: [RoamWall]
+    /// Routes over `surfaces` and `walls`; pass a cached one, since building it flies every possible leap.
+    public var nav: RoamNav
     public var mode: RoamMode
     public var home: CGPoint
     public var pointer: CGPoint
     public var lively: Bool
     public var screenMinX: Double
     public var screenMaxX: Double
+    /// Something worth a look, such as where the person is typing; Extra Curious heads for it.
+    public var attention: CGPoint?
+    /// Notable controls in windows, in AppKit coordinates; their tops are among `surfaces`.
+    public var elements: [CGRect]
+    /// The pet's size in points.
+    public var unit: Double
 
-    public init(surfaces: [RoamSurface], mode: RoamMode, home: CGPoint, pointer: CGPoint, lively: Bool,
-                screenMinX: Double, screenMaxX: Double) {
+    public init(surfaces: [RoamSurface], walls: [RoamWall] = [], nav: RoamNav? = nil, mode: RoamMode, home: CGPoint,
+                pointer: CGPoint, lively: Bool, screenMinX: Double, screenMaxX: Double, attention: CGPoint? = nil,
+                elements: [CGRect] = [], unit: Double = 32) {
         self.surfaces = surfaces
+        self.walls = walls
+        self.nav = nav ?? RoamNav(ledges: surfaces, walls: walls, half: unit / 2, screenMinX: screenMinX,
+                                  screenMaxX: screenMaxX)
         self.mode = mode
         self.home = home
         self.pointer = pointer
         self.lively = lively
         self.screenMinX = screenMinX
         self.screenMaxX = screenMaxX
-    }
-}
-
-/// Behavior rules for the roaming pet, free of UI so they run under test with scripted dice.
-public enum RoamBrain {
-    public static let calmSpeed = 45.0
-    public static let livelySpeed = 70.0
-    public static let trotSpeed = 70.0
-    public static let hangOutRadius = 120.0
-    public static let followDistance = 60.0
-    public static let sitAfterStill = 10.0
-    public static let napAfterStill = 30.0
-    public static let fadeTime = 0.25
-    /// Chance of stepping off a ledge's end rather than turning around, while on patrol.
-    public static let stepOffChance = 0.35
-    private static let pointerMoved = 3.0
-
-    public static func walkSpeed(lively: Bool) -> Double { lively ? livelySpeed : calmSpeed }
-
-    /// Quiet mode keeps the pet in place.
-    public static func effectiveMode(_ mode: RoamMode, quiet: Bool) -> RoamMode { quiet ? .hangOut : mode }
-
-    /// Seconds between window snapshots, or nil when none are needed.
-    public static func snapshotInterval(_ activity: RoamActivity) -> Double? {
-        switch activity {
-        case .walking, .falling, .carried, .fadingOut, .fadingIn: 0.5
-        case .resting, .sitting: 2
-        case .napping: nil
-        }
+        self.attention = attention
+        self.elements = elements
+        self.unit = unit
     }
 
-    /// Seconds between brain steps while still; a moving pet steps on every display refresh instead.
-    public static func idleInterval(_ activity: RoamActivity) -> Double { activity == .napping ? 1 : 0.5 }
-
-    /// The pet's body is an ellipse standing on its feet; `feet` is the bottom center.
-    public static func hits(point: CGPoint, feet: CGPoint, unit: Double) -> Bool {
-        let rx = unit * 0.46
-        let ry = unit * 0.5
-        let dx = (point.x - feet.x) / rx
-        let dy = (point.y - (feet.y + ry)) / ry
-        return dx * dx + dy * dy <= 1
-    }
-
-    public static func step(_ s: inout RoamState, dt: Double, env: RoamEnvironment, roll: () -> Double) -> [RoamEvent] {
-        var events: [RoamEvent] = []
-        switch s.activity {
-        case .carried:
-            return events
-        case .falling:
-            let fall = RoamPhysics.fall(x: s.x, y: s.y, speed: s.fallSpeed, dt: dt, surfaces: env.surfaces)
-            s.y = fall.y
-            s.fallSpeed = fall.speed
-            if fall.landedOn != nil {
-                events.append(.landed(impact: fall.speed))
-                s.fallSpeed = 0
-                s.activity = .resting
-                s.timeLeft = 0.5 + roll() * 0.8
-            }
-            return events
-        case .fadingOut:
-            s.alpha -= dt / fadeTime
-            if s.alpha <= 0 {
-                if let bar = env.surfaces.first(where: { $0.kind == .menuBar }) {
-                    s.x = min(max(s.x, bar.minX + 12), bar.maxX - 12)
-                    s.y = bar.y
-                    s.alpha = 0
-                    s.activity = .fadingIn
-                } else {
-                    s.alpha = 1
-                    s.activity = .resting
-                }
-            }
-            return events
-        case .fadingIn:
-            s.alpha += dt / fadeTime
-            if s.alpha >= 1 {
-                s.alpha = 1
-                s.activity = .resting
-                s.timeLeft = 1 + roll() * 2
-            }
-            return events
-        case .walking, .resting, .sitting, .napping:
-            break
-        }
-
-        guard let ground = RoamPhysics.ground(x: s.x, y: s.y, in: env.surfaces) else {
-            s.activity = .falling
-            s.fallSpeed = 0
-            events.append(.startled)
-            return events
-        }
-
-        if env.mode == .follow {
-            followStep(&s, dt: dt, env: env, ground: ground, roll: roll, events: &events)
-        } else {
-            wanderStep(&s, dt: dt, env: env, ground: ground, roll: roll, events: &events)
-        }
-        return events
-    }
-
-    // MARK: Patrol and hang out
-
-    private static func wanderStep(_ s: inout RoamState, dt: Double, env: RoamEnvironment, ground: RoamSurface,
-                                   roll: () -> Double, events: inout [RoamEvent]) {
-        s.timeLeft -= dt
-        switch s.activity {
-        case .walking:
-            advance(&s, speed: walkSpeed(lively: env.lively), dt: dt, env: env, ground: ground, roll: roll, events: &events)
-            if s.timeLeft <= 0, s.activity == .walking {
-                s.activity = .resting
-                s.timeLeft = 2 + roll() * 4
-            }
-        case .resting:
-            guard s.timeLeft <= 0 else { return }
-            if env.mode == .patrol, s.preferMenuBar, ground.kind != .menuBar,
-               env.surfaces.contains(where: { $0.kind == .menuBar }) {
-                s.activity = .fadingOut
-                return
-            }
-            let pick = roll()
-            if env.mode == .hangOut, pick < 0.2 {
-                s.activity = .napping
-                s.timeLeft = 20 + roll() * 20
-            } else if pick < (env.mode == .hangOut ? 0.45 : 0.15) {
-                s.activity = .sitting
-                s.timeLeft = 5 + roll() * 7
-            } else {
-                startWalk(&s, env: env, roll: roll)
-            }
-        case .sitting, .napping:
-            guard s.timeLeft <= 0 else { return }
-            if s.activity == .napping { events.append(.woke) }
-            s.activity = .resting
-            s.timeLeft = 0.5 + roll()
-        default:
-            break
-        }
-    }
-
-    private static func startWalk(_ s: inout RoamState, env: RoamEnvironment, roll: () -> Double) {
-        var facing = roll() < 0.5 ? -1.0 : 1.0
-        if env.mode == .hangOut {
-            if s.x > env.home.x + hangOutRadius { facing = -1 }
-            if s.x < env.home.x - hangOutRadius { facing = 1 }
-        }
-        s.facing = facing
-        s.activity = .walking
-        s.timeLeft = 2 + roll() * 4
-    }
-
-    /// Moves along the ledge, turning at its ends or, now and then on patrol, stepping off.
-    private static func advance(_ s: inout RoamState, speed: Double, dt: Double, env: RoamEnvironment,
-                                ground: RoamSurface, roll: () -> Double, events: inout [RoamEvent]) {
-        var lower = max(ground.minX, env.screenMinX)
-        var upper = min(ground.maxX, env.screenMaxX)
-        if env.mode == .hangOut {
-            lower = max(lower, min(env.home.x - hangOutRadius, s.x))
-            upper = min(upper, max(env.home.x + hangOutRadius, s.x))
-        }
-        let next = s.x + s.facing * speed * dt
-        if next >= lower, next <= upper {
-            s.x = next
-            return
-        }
-        let canStepOff = env.mode == .patrol && ground.kind != .floor && !(s.preferMenuBar && ground.kind == .menuBar)
-            && (next < ground.minX || next > ground.maxX)
-        if canStepOff, roll() < stepOffChance {
-            s.x = next
-            s.activity = .falling
-            s.fallSpeed = 0
-            return
-        }
-        s.x = min(max(next, lower), upper)
-        s.facing = -s.facing
-        events.append(.turned)
-    }
-
-    // MARK: Follow
-
-    private static func followStep(_ s: inout RoamState, dt: Double, env: RoamEnvironment, ground: RoamSurface,
-                                   roll: () -> Double, events: inout [RoamEvent]) {
-        let pointer = env.pointer
-        let moved = s.lastPointer.map { hypot($0.x - pointer.x, $0.y - pointer.y) > pointerMoved } ?? false
-        s.lastPointer = pointer
-        if moved {
-            s.pointerStill = 0
-            if s.activity == .napping { events.append(.woke) }
-            if s.activity == .napping || s.activity == .sitting {
-                s.activity = .resting
-                s.timeLeft = 0
-            }
-        } else {
-            s.pointerStill += dt
-        }
-
-        let dx = pointer.x - s.x
-        let comfort = followDistance
-        let tooClose = abs(dx) < comfort - 6
-        let tooFar = abs(dx) > comfort + 10
-        let speed = env.lively ? livelySpeed * 1.3 : trotSpeed
-
-        if tooClose, s.activity != .sitting, s.activity != .napping {
-            // Backing away keeps the pet from ever sitting under the cursor.
-            s.facing = dx < 0 ? 1 : -1
-            s.activity = .walking
-        } else if tooFar, s.activity != .sitting, s.activity != .napping {
-            s.facing = dx < 0 ? -1 : 1
-            s.activity = .walking
-        } else if s.activity == .walking, !tooClose, !tooFar {
-            s.activity = .resting
-        }
-
-        switch s.activity {
-        case .walking:
-            let next = s.x + s.facing * speed * dt
-            let lower = max(ground.minX, env.screenMinX)
-            let upper = min(ground.maxX, env.screenMaxX)
-            if next >= lower, next <= upper {
-                s.x = next
-            } else if pointer.y < s.y - 40, next < ground.minX || next > ground.maxX, ground.kind != .floor {
-                s.x = next
-                s.activity = .falling
-                s.fallSpeed = 0
-            } else {
-                s.x = min(max(next, lower), upper)
-                s.activity = .resting
-            }
-        case .resting, .sitting, .napping:
-            if s.pointerStill >= napAfterStill, s.activity != .napping {
-                s.activity = .napping
-            } else if s.pointerStill >= sitAfterStill, s.activity == .resting {
-                s.activity = .sitting
-            }
-        default:
-            break
-        }
-    }
+    public var half: Double { unit / 2 }
 }

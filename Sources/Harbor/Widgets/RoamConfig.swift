@@ -42,6 +42,13 @@ final class RoamDriver {
     var falling = false
     var hovering = false
     var lively = false
+    /// Walking or climbing speed in points per second, zero while still, for pacing the walk cycle.
+    var walkSpeed = 0.0
+    /// Holding a wall: climbing, clinging or sliding. The window turns the pet so its feet face the wall.
+    var climbing = false
+    var sliding = false
+    /// Which side of the wall the pet is on (see `RoamWall.normal`); 0 off walls.
+    var wallNormal = 0.0
     var startleTick = 0
     var landTick = 0
     var landImpact = 0.0
