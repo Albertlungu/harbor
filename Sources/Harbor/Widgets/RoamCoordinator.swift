@@ -7,7 +7,7 @@ struct PetKey: Hashable {
     let item: UUID
 }
 
-/// Transparent and click-through except over the pet itself, and invisible to screen sharing.
+/// Transparent and click-through except over the pet itself.
 final class RoamPanel: NSPanel {
     init(side: CGFloat) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: side, height: side),
@@ -23,7 +23,6 @@ final class RoamPanel: NSPanel {
         level = .statusBar
         // Matches the docks, so the pet stays put while Spaces slide past, fullscreen ones included.
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        sharingType = .none
         ignoresMouseEvents = true
     }
 
@@ -246,6 +245,10 @@ final class RoamCoordinator {
     private func refresh(_ pet: RoamPet, widget: WidgetConfig, dock: Dock) {
         pet.mode = RoamBrain.effectiveMode(widget.roamMode, quiet: quiet)
         pet.walkOnWindows = widget.walksOnWindows
+        // The window server leaves non-shareable windows out of the Space-switch animation as well as out of
+        // recordings, so hiding is opt-in.
+        let sharing: NSWindow.SharingType = widget.hidesFromRecordings ? .none : .readOnly
+        if pet.panel.sharingType != sharing { pet.panel.sharingType = sharing }
         if let home = widget.roamHome { pet.home = home }
         let unit = CGFloat(widget.roamSize)
         if pet.driver.unit != unit { pet.driver.unit = unit }

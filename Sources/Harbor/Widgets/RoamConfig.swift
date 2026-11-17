@@ -14,6 +14,7 @@ extension WidgetConfig {
     var roamSize: Double { min(max(stateDouble("roamSize") ?? 32, 24), 48) }
     var walksOnWindows: Bool { bool("roamWindows", true) }
     var staysOnOwnScreen: Bool { string("roamScreens", "all") == "own" }
+    var hidesFromRecordings: Bool { bool("roamHideFromRecordings", false) }
 
     var roamHome: RoamHome? {
         guard case .object(let fields)? = state["roamHome"], let x = fields["x"]?.doubleValue,

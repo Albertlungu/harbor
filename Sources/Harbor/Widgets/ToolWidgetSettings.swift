@@ -72,6 +72,7 @@ private struct PetRoamSettings: View {
                 Text("All screens").tag("all")
                 Text("The dock's own screen").tag("own")
             }
+            Toggle("Hide pet in screen recordings", isOn: fields.bool("roamHideFromRecordings", false))
         }
     }
 }
