@@ -27,14 +27,20 @@ public enum RoamElements {
     /// A ledge must also span this share of its window, so wide windows ignore mid-sized pieces.
     public static let minWidthFraction = 0.15
     public static let minHeight = 18.0
+    /// Content panes thinner than this are strips like path bars and tab rows, not main areas.
+    public static let minPaneHeight = 60.0
     /// Text fields are thin, so only wide ones (search fields, message boxes) are worth standing on.
     public static let minTextFieldWidth = 240.0
-    /// Tops closer than this to each other or to the window top count as the same ledge.
+    /// Leeway when comparing a top against the window's edges.
     public static let topSlack = 4.0
+    /// An overlapping ledge closer than this below a kept one, like a list under its own header, adds nothing.
+    public static let minGap = 30.0
     public static let maxPerWindow = 6
 
     /// Roles that open their own surface rather than sitting inside a window.
     static let floatingRoles: Set<String> = ["AXMenu", "AXSheet", "AXPopover"]
+    /// Roles allowed to be thin.
+    static let barRoles: Set<String> = ["AXTextField", "AXComboBox", "AXToolbar"]
 
     /// How strongly a role reads as a main part of the interface; roles not listed are never ledges.
     static func weight(role: String, subrole: String?) -> Double? {
@@ -66,15 +72,16 @@ public enum RoamElements {
         if candidate.role == "AXTextField" || candidate.role == "AXComboBox" {
             guard span >= minTextFieldWidth else { return nil }
         }
-        // Plain groups are layout wrappers unless they hold a sizeable block of content.
-        if candidate.role == "AXGroup", frame.height < 60 { return nil }
+        if !barRoles.contains(candidate.role), !floating, frame.height < minPaneHeight { return nil }
         if !floating {
             let top = frame.maxY
             // A top in the title strip or outside the window would put the pet on the window edge or in the air.
             guard top <= window.maxY - RoamSurfaces.titleBarHeight + topSlack, top > window.minY + topSlack else {
                 return nil
             }
+            // Wrappers filling the window just below its title strip; a full pane under a real toolbar still counts.
             let wholeWindow = frame.width >= window.width * 0.95 && frame.height >= window.height * 0.9
+                && top >= window.maxY - 2 * RoamSurfaces.titleBarHeight
             guard !wholeWindow else { return nil }
         }
         let share = min(span / max(window.width, 1), 1)
@@ -105,10 +112,9 @@ public enum RoamElements {
         return kept.map(\.frame)
     }
 
-    /// Two ledges at nearly the same height that mostly overlap read as one; the better one is kept.
+    /// Two ledges that mostly overlap and sit at nearly the same height read as one; the better one is kept.
     static func duplicates(_ a: CGRect, _ b: CGRect) -> Bool {
-        guard abs(a.maxY - b.maxY) <= topSlack else { return false }
         let overlap = min(a.maxX, b.maxX) - max(a.minX, b.minX)
-        return overlap > 0.5 * min(a.width, b.width)
+        return abs(a.maxY - b.maxY) < minGap && overlap > 0.5 * min(a.width, b.width)
     }
 }

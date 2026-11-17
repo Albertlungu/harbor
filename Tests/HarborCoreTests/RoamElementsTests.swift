@@ -66,6 +66,11 @@ import Testing
         #expect(RoamElements.score(element("AXScrollArea", height: 10)) == nil)
     }
 
+    @Test func thinPanesAreStripsNotMainAreas() {
+        #expect(RoamElements.score(element("AXList", height: 30)) == nil)
+        #expect(RoamElements.score(element("AXToolbar", height: 30)) != nil)
+    }
+
     @Test func onlyWideTextFieldsCount() {
         #expect(RoamElements.score(element("AXTextField", width: 160, height: 22)) == nil)
         #expect(RoamElements.score(element("AXTextField", width: 400, height: 22)) != nil)
@@ -117,6 +122,11 @@ import Testing
         #expect(RoamElements.score(element("AXScrollArea", inset: 60, width: 800, height: 500)) != nil)
     }
 
+    @Test func fullPaneJustUnderABrowserToolbarIsAccepted() {
+        // A page area filling the window below a 65 pt toolbar is a real edge, not a wrapper.
+        #expect(RoamElements.score(element("AXGroup", inset: 65, width: 800, height: 535)) != nil)
+    }
+
     @Test func menusStandOnTheirOwnFrame() {
         let menu = CGRect(x: 300, y: 400, width: 220, height: 180)
         let candidate = RoamElementCandidate(role: "AXMenu", frame: menu, windowFrame: menu, depth: 0)
@@ -133,6 +143,12 @@ import Testing
         #expect(ledges == [scroll.frame])
     }
 
+    @Test func listJustUnderItsScrollAreaTopIsADuplicate() {
+        let scroll = element("AXScrollArea", inset: 52, width: 780)
+        let outline = element("AXOutline", inset: 79, width: 780, height: 270, depth: 4)
+        #expect(RoamElements.ledges([outline, scroll]) == [scroll.frame])
+    }
+
     @Test func sideBySidePanesAtTheSameTopAreBothKept() {
         let sidebar = element("AXScrollArea", x: 0, width: 220)
         let content = element("AXScrollArea", x: 230, width: 560)
@@ -146,7 +162,7 @@ import Testing
     }
 
     @Test func eachWindowIsCapped() {
-        let many = (0..<10).map { element("AXScrollArea", inset: 40 + Double($0) * 30, height: 100) }
+        let many = (0..<10).map { element("AXScrollArea", inset: 40 + Double($0) * 40, height: 100) }
         #expect(RoamElements.ledges(many, maxPerWindow: 4).count == 4)
     }
 
