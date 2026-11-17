@@ -74,7 +74,9 @@ struct ClockWidget: View {
         return .system(size: max(size, 8), weight: widget.bool("bold", true) ? .semibold : .regular, design: design)
     }
 
-    private var textColor: Color { colorSetting(widget, "textColor") ?? Tokens.text }
+    private var textColor: Color {
+        colorSetting(widget, "textColor") ?? (Appearance.shared.themesDocks ? Appearance.shared.dockAccent(for: .clock) : Tokens.text)
+    }
     private var background: Color? { colorSetting(widget, "background") }
 
     static var systemUses24h: Bool {
@@ -89,7 +91,7 @@ struct DividerWidget: View {
     let horizontal: Bool
 
     var body: some View {
-        let color = colorSetting(widget, "color") ?? Tokens.textMuted.opacity(0.5)
+        let color = colorSetting(widget, "color") ?? (Appearance.shared.dockWash ?? Tokens.textMuted).opacity(0.5)
         Rectangle()
             .fill(color)
             .frame(width: horizontal ? 1 : size.width * 0.7, height: horizontal ? size.height * 0.7 : 1)

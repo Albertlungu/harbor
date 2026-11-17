@@ -81,8 +81,12 @@ struct MonitorWidget: View {
 
     private func ringColor(_ reading: Reading) -> Color {
         guard let value = reading.value else { return Tokens.textMuted }
-        if widget.string("colorMode", "auto") == "fixed" { return colorSetting(widget, "fixedColor") ?? Tokens.accent }
-        return Tokens.System.color(for: SystemLogic.level(for: value, reversed: widget.kind == .battery))
+        let look = Appearance.shared
+        if widget.string("colorMode", "auto") == "fixed" { return colorSetting(widget, "fixedColor") ?? look.dockAccent(for: widget.kind) }
+        let level = SystemLogic.level(for: value, reversed: widget.kind == .battery)
+        // Themed docks show the palette while all is well and keep the warning colours for trouble.
+        if level == .good && look.themesDocks { return look.dockAccent(for: widget.kind) }
+        return Tokens.System.color(for: level)
     }
 
     private var textColor: Color {

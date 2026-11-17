@@ -14,7 +14,7 @@ struct DockBackground: View {
         ZStack {
             fill(shape)
             if style.showBorder {
-                shape.strokeBorder(style.borderColor.color, lineWidth: CGFloat(style.borderWidth))
+                shape.strokeBorder(borderColor, lineWidth: CGFloat(style.borderWidth))
             }
             if editing {
                 shape.strokeBorder(Tokens.accent, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
@@ -23,24 +23,36 @@ struct DockBackground: View {
         .shadow(color: .black.opacity(style.background == .none ? 0 : 0.18), radius: 12, y: 4)
     }
 
+    /// The default border picks up the palette; a border colour the person chose stays.
+    private var borderColor: Color {
+        if let wash = Appearance.shared.dockWash, style.borderColor == DockStyle().borderColor { return wash.opacity(0.7) }
+        return style.borderColor.color
+    }
+
     @ViewBuilder
     private func fill(_ shape: RoundedRectangle) -> some View {
+        let wash = Appearance.shared.dockWash
         if opaque || reduceTransparency, style.background != .none {
             shape.fill(style.background == .solid ? style.solidColor.color.opacity(1) : Tokens.dockSolid)
+                .overlay(wash.map { shape.fill($0.opacity(Tokens.paletteOverlay)) })
         } else {
             switch style.background {
             case .glass:
                 let glass: Glass = style.glassTint.map { Glass.regular.tint($0.color) }
-                    ?? (Appearance.shared.paletteGlass ? Glass.regular.tint(Tokens.accent.opacity(Tokens.paletteWash)) : .regular)
+                    ?? wash.map { Glass.regular.tint($0.opacity(Tokens.paletteWash)) } ?? .regular
                 shape.fill(.clear)
                     .glassEffect(glass, in: shape)
                     .overlay(style.darkGlass ? shape.fill(Color.black.opacity(0.35)) : nil)
+                    // Dark glass would hide the tint underneath it, so the wash goes on top as well.
+                    .overlay(style.darkGlass && style.glassTint == nil ? wash.map { shape.fill($0.opacity(Tokens.paletteOverlay)) } : nil)
             case .blur:
                 shape.fill(.ultraThinMaterial)
                     .overlay(shape.fill(Color.black.opacity(style.blurDarkness * 0.6)))
+                    .overlay(wash.map { shape.fill($0.opacity(Tokens.paletteOverlay)) })
                     .opacity(style.opacity.value)
             case .solid:
                 shape.fill(style.solidColor.color.opacity(style.opacity.value))
+                    .overlay(wash.map { shape.fill($0.opacity(Tokens.paletteOverlay * style.opacity.value)) })
             case .none:
                 shape.fill(Color.black.opacity(0.001))
             }
@@ -84,11 +96,13 @@ struct NotchBar: View {
         case .color: shape.fill(style.notch.color.color)
         case .blur:
             shape.fill(.ultraThinMaterial).overlay(shape.fill(Color.black.opacity(style.blurDarkness * 0.8)))
+                .overlay(Appearance.shared.dockWash.map { shape.fill($0.opacity(Tokens.paletteOverlay)) })
         case .glass:
             if folded {
                 shape.fill(Color.black)
             } else {
-                shape.fill(.clear).glassEffect(.regular, in: shape)
+                let glass = Appearance.shared.dockWash.map { Glass.regular.tint($0.opacity(Tokens.paletteWash)) } ?? .regular
+                shape.fill(.clear).glassEffect(glass, in: shape)
             }
         }
     }
@@ -110,13 +124,14 @@ struct LabelPill: View {
     let text: String
 
     var body: some View {
+        let look = Appearance.shared
         Text(text)
             .font(.system(size: 12, weight: .medium))
             .lineLimit(1)
-            .foregroundStyle(Tokens.onLabel)
+            .foregroundStyle(look.themesDocks ? look.onAccent : Tokens.onLabel)
             .padding(.horizontal, Tokens.Space.m)
             .padding(.vertical, Tokens.Space.xs)
-            .background(Tokens.labelBackground.opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.pill))
+            .background((look.dockWash ?? Tokens.labelBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: Tokens.Radius.pill))
     }
 }
 

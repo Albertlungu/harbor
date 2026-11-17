@@ -248,7 +248,7 @@ struct AppIcon: View {
             .overlay(alignment: indicatorAlignment) {
                 if running != nil && model.store.settings.showRunningIndicators {
                     Circle()
-                        .fill(model.store.settings.indicatorColor?.color ?? Tokens.indicator)
+                        .fill(model.store.settings.indicatorColor?.color ?? Appearance.shared.indicator)
                         .frame(width: Tokens.Dock.indicatorSize, height: Tokens.Dock.indicatorSize)
                         .offset(indicatorOffset)
                 }

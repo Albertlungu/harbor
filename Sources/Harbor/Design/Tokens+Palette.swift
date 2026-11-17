@@ -39,6 +39,29 @@ final class Appearance {
 
     var fontDesign: Font.Design? { roundedType ? .rounded : nil }
 
+    // MARK: Docks
+
+    /// Whether docks take on the palette: backgrounds, borders, running dots, labels and widget accents.
+    var themesDocks: Bool { paletteGlass }
+
+    /// The palette accent while docks are themed, for washes over backgrounds that have no colour of their own.
+    var dockWash: Color? { themesDocks ? accent : nil }
+
+    /// Running-app dot when no indicator colour is set.
+    var indicator: Color { themesDocks ? accent : Tokens.indicator }
+
+    /// A widget's accent inside a dock: its category hue when docks are themed and category
+    /// colours are on, otherwise the palette accent.
+    func dockAccent(for kind: WidgetKind?) -> Color {
+        guard themesDocks, categoryColors, let kind else { return accent }
+        return Self.color(palette.spec.hue(for: WidgetCatalog.category(for: kind)))
+    }
+
+    /// The accent then the five category hues, for effects that draw in the palette.
+    var colors: [Color] {
+        [accent] + palette.spec.categories.map(Self.color)
+    }
+
     // MARK: Palette previews, independent of the active palette
 
     static func accent(of palette: Palette) -> Color {
@@ -57,8 +80,11 @@ extension Tokens {
     @MainActor static var accent: Color { Appearance.shared.accent }
     @MainActor static var onAccent: Color { Appearance.shared.onAccent }
 
-    /// Soft wash laid over glass when the palette is allowed to tint docks.
-    static let paletteWash = 0.12
+    /// Glass tint strength when the palette themes docks. Liquid Glass lightens its tint a lot,
+    /// so anything much lower barely reads.
+    static let paletteWash = 0.38
+    /// Colour laid over blur, solid and opaque backgrounds when the palette themes docks.
+    static let paletteOverlay = 0.2
 }
 
 private struct HarborLook: ViewModifier {

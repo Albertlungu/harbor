@@ -23,7 +23,7 @@ struct FolderStackWidget: View {
         Image(systemName: "folder.fill")
             .symbolRenderingMode(.hierarchical)
             .font(.system(size: side * 0.78))
-            .foregroundStyle(colorSetting(widget, "tint") ?? Tokens.accent)
+            .foregroundStyle(colorSetting(widget, "tint") ?? Appearance.shared.dockAccent(for: .folderStack))
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
             .onTapGesture {
