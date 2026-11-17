@@ -35,7 +35,7 @@ struct FolderBrowser: View {
                 ContentUnavailableView("Empty folder", systemImage: "folder")
             } else {
                 switch options.layout {
-                case .grid: grid
+                case .grid, .columns, .gallery: grid
                 case .list: list
                 case .fan: fan
                 }
@@ -67,7 +67,7 @@ struct FolderBrowser: View {
         switch options.layout {
         case .list: 300
         case .fan: 300
-        case .grid:
+        case .grid, .columns, .gallery:
             CGFloat(max(1, min(options.columns, max(entries.count, 1)))) * (CGFloat(options.iconSize) + 24 + Tokens.Space.m)
                 + Tokens.Space.l * 2
         }
@@ -176,7 +176,7 @@ enum FolderSorting {
             case .kind:
                 if a.pathExtension != b.pathExtension { return a.pathExtension < b.pathExtension }
                 return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
-            case .dateModified:
+            default:
                 let ma = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let mb = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 return ma > mb
