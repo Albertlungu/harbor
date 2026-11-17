@@ -6,7 +6,7 @@ enum RoamSnapshot {
     struct Result: Sendable {
         /// Normal windows of other apps, front to back, in AppKit coordinates.
         var windows: [RoamWindow]
-        /// Screens where the frontmost app covers the whole display.
+        /// Screens showing a fullscreen app.
         var fullscreen: [CGRect]
     }
 
@@ -36,6 +36,10 @@ enum RoamSnapshot {
             let isFront = !foundFront && pid == frontPID
             if isFront { foundFront = true }
             windows.append(RoamWindow(frame: frame, isFront: isFront))
+        }
+        // A fullscreen app with the menu bar kept visible is shorter than its screen, so ask for the Space's type too.
+        for frame in FullscreenSpaces.frames() where !fullscreen.contains(where: { $0.intersects(frame) }) {
+            fullscreen.append(frame)
         }
         return Result(windows: windows, fullscreen: fullscreen)
     }

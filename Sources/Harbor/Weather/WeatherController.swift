@@ -181,16 +181,17 @@ final class WeatherController {
 
     /// Drops every pile, ball and particle, as the menu's "Clear" does.
     func clear() {
-        for screen in screens.values {
-            let season = screen.world.season
-            screen.world = WeatherWorld(width: screen.world.width, height: screen.world.height, season: season,
-                                        intensity: settings.intensity, accumulation: settings.accumulation,
-                                        interactions: settings.interactions, evening: screen.world.evening,
-                                        seed: UInt64.random(in: 1...UInt64.max))
-            // Drawn now rather than on the next tick, which can be a second away while the weather is still.
-            screen.render()
-        }
+        for screen in screens.values { reset(screen) }
         snapshot()
+    }
+
+    private func reset(_ screen: WeatherScreen) {
+        screen.world = WeatherWorld(width: screen.world.width, height: screen.world.height, season: screen.world.season,
+                                    intensity: settings.intensity, accumulation: settings.accumulation,
+                                    interactions: settings.interactions, evening: screen.world.evening,
+                                    seed: UInt64.random(in: 1...UInt64.max))
+        // Drawn now rather than on the next tick, which can be a second away while the weather is still.
+        screen.render()
     }
 
     // MARK: Screens
@@ -253,6 +254,8 @@ final class WeatherController {
             screen.hidden = hide
             if hide {
                 screen.panel.orderOut(nil)
+                // A fullscreen app starts clean: nothing waits to pile back in when the desktop returns.
+                if fullscreen.contains(where: { $0.intersects(frame) }) { reset(screen) }
             } else {
                 screen.panel.orderFrontRegardless()
             }
