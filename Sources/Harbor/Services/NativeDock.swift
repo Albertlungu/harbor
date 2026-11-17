@@ -74,6 +74,8 @@ final class NativeDock {
     private var guardObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var guardTimer: Timer?
     private var lastReassert: Date = .distantPast
+    /// The delay alone no longer holds the Dock back on macOS 26 and later; see `DockPushGuard`.
+    private let pushGuard = DockPushGuard()
 
     /// Pushes the native Dock out of the way with a 9999-second auto-hide delay, saving prior values,
     /// then keeps watching so the delay is put back if anything else resets it.
@@ -126,6 +128,7 @@ final class NativeDock {
     /// Harbor runs; the delay was found reset to 5 seconds, which let the Dock slide up under the
     /// bottom docks. Checks are cheap reads; the Dock only restarts on real drift.
     private func startGuard() {
+        pushGuard.start()
         guard guardTimer == nil else { return }
         guardTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.reassertIfNeeded() }
@@ -143,6 +146,7 @@ final class NativeDock {
     }
 
     private func stopGuard() {
+        pushGuard.stop()
         guardTimer?.invalidate()
         guardTimer = nil
         for observer in guardObservers { observer.center.removeObserver(observer.token) }
@@ -150,6 +154,8 @@ final class NativeDock {
     }
 
     private func reassertIfNeeded() {
+        // Also picks up display changes, and starts the tap once Accessibility is granted.
+        pushGuard.start()
         // Restarting the Dock in a loop would be worse than it showing, so drift is corrected
         // at most twice a minute.
         guard !isDeepHidden, Date().timeIntervalSince(lastReassert) > 30 else { return }
