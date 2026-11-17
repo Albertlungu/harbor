@@ -134,10 +134,8 @@ public struct RoamNav: Sendable {
 
         // Ledges and walls that touch: step on or off, both ways.
         for (li, ledge) in ledges.enumerated() {
-            for (wi, wall) in walls.enumerated() {
+            for (wi, wall) in walls.enumerated() where touches(li, wall) {
                 let span = range(li)
-                let gap = max(span.lowerBound - wall.x, wall.x - span.upperBound, 0)
-                guard gap <= 1.5, ledge.y >= wall.minY - 2, ledge.y <= wall.maxY + 2 else { continue }
                 let x = min(max(wall.x + wall.normal * half, span.lowerBound), span.upperBound)
                 let wallRange = range(ledgeCount + wi)
                 let y = min(max(ledge.y + half, wallRange.lowerBound), wallRange.upperBound)
@@ -182,7 +180,7 @@ public struct RoamNav: Sendable {
         // Jumps from a ledge onto a wall it does not touch.
         for (li, ledge) in ledges.enumerated() {
             let span = range(li)
-            for (wi, wall) in walls.enumerated() {
+            for (wi, wall) in walls.enumerated() where !touches(li, wall) {
                 let wallRange = range(ledgeCount + wi)
                 let line = wall.x + wall.normal * half
                 let cy = min(max(ledge.y + half + 20, wallRange.lowerBound), wallRange.upperBound)
@@ -206,6 +204,13 @@ public struct RoamNav: Sendable {
             }
         }
         return result
+    }
+
+    /// Whether a ledge meets a wall closely enough to step between them.
+    private func touches(_ ledge: Int, _ wall: RoamWall) -> Bool {
+        let span = range(ledge)
+        let gap = max(span.lowerBound - wall.x, wall.x - span.upperBound, 0)
+        return gap <= 1.5 && ledges[ledge].y >= wall.minY - 2 && ledges[ledge].y <= wall.maxY + 2
     }
 
     /// Flies a launch through the pet's own physics. Planned leaps grab only the wall they aim for.
