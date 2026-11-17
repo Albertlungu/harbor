@@ -66,16 +66,17 @@ final class FolderCollectionCoordinator: NSObject, NSCollectionViewDataSource, N
         self.strip = strip
     }
 
-    var iconSide: CGFloat { strip ? 56 : CGFloat(model.options.iconSize) }
+    var iconSide: CGFloat { strip ? 48 : CGFloat(model.options.iconSize) }
     var showNames: Bool { !strip && model.options.showNames }
 
     func makeLayout() -> NSCollectionViewFlowLayout {
         let layout = NSCollectionViewFlowLayout()
         layout.scrollDirection = strip ? .horizontal : .vertical
         layout.itemSize = NSSize(width: iconSide + 28, height: iconSide + (showNames ? 44 : 14))
-        layout.minimumInteritemSpacing = strip ? 4 : 6
-        layout.minimumLineSpacing = strip ? 4 : 10
-        layout.sectionInset = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        layout.minimumInteritemSpacing = strip ? 2 : 6
+        layout.minimumLineSpacing = strip ? 2 : 10
+        layout.sectionInset = strip ? NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+            : NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
         return layout
     }
 

@@ -64,7 +64,7 @@ struct FolderBrowser: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             FolderIconsView(model: model, strip: true)
-                .frame(height: 84)
+                .frame(height: 90)
         }
     }
 
@@ -85,7 +85,7 @@ struct FolderBrowser: View {
         case .gallery: 600
         case .fan: 320
         case .grid:
-            max(480, CGFloat(min(max(model.options.columns, 2), 10)) * (CGFloat(model.options.iconSize) + 34) + 20)
+            max(520, CGFloat(min(max(model.options.columns, 2), 10)) * (CGFloat(model.options.iconSize) + 34) + 20)
         }
     }
 
@@ -118,8 +118,9 @@ private struct FolderToolbar: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .layoutPriority(1)
                 .help(model.current.path)
-            Spacer(minLength: Tokens.Space.s)
+            Spacer(minLength: 0)
             Picker("View", selection: Binding(get: { model.options.layout == .fan ? nil : model.options.layout },
                                               set: { layout in if let layout { model.updateOptions { $0.layout = layout } } })) {
                 Image(systemName: "square.grid.2x2").help("Icons").tag(FolderLayout?.some(.grid))
@@ -159,7 +160,7 @@ private struct FolderToolbar: View {
             TextField("Search", text: $model.query)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
-                .frame(width: 110)
+                .frame(minWidth: 70, maxWidth: 110)
             Button { model.openCurrentInFinder() } label: { Image(systemName: "macwindow") }
                 .controlSize(.small)
                 .help("Open in Finder")
@@ -216,6 +217,8 @@ private struct FolderWindowHook: NSViewRepresentable {
             super.viewDidMoveToWindow()
             guard let window else { return }
             model.installKeyMonitor(for: window)
+            // Typing, Quick Look and the Edit menu need Harbor active, as Finder is while one of its windows is in front.
+            NSApp.activate()
             window.makeKey()
         }
     }
