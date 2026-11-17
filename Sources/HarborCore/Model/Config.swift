@@ -113,6 +113,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
     /// Read by the dock pet.
     public var petEnergy: PetEnergy = .normal
     public var petQuiet = false
+    public var petSounds = true
+    public var petSoundVolume = 0.3
 
     public var newDocks = NewDockDefaults()
     public var previews = PreviewSettings()
@@ -156,6 +158,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
         roundedType = c(.roundedType, d.roundedType)
         petEnergy = c(.petEnergy, d.petEnergy)
         petQuiet = c(.petQuiet, d.petQuiet)
+        petSounds = c(.petSounds, d.petSounds)
+        petSoundVolume = c(.petSoundVolume, d.petSoundVolume)
         newDocks = c(.newDocks, d.newDocks)
         previews = c(.previews, d.previews)
     }

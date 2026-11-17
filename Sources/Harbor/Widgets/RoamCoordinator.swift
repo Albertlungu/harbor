@@ -102,6 +102,10 @@ final class RoamCoordinator {
     private var attention: CGPoint?
     /// Told about every jump, grab, slide, climb and landing, for sound effects.
     var eventSink: ((PetKey, RoamEvent) -> Void)?
+    private let elementWatcher = RoamElementWatcher()
+    private let attentionWatcher = RoamAttention()
+    private var scanningElements = false
+    private var watchingAttention = false
     private var lastGazeTick = Date.distantPast
 
     /// Quiet mode (Settings › Personality) keeps a roaming pet hanging out in one place.
@@ -123,6 +127,9 @@ final class RoamCoordinator {
         }
         watch(distributed, Notification.Name("com.apple.screenIsLocked")) { $0.setLocked(true) }
         watch(distributed, Notification.Name("com.apple.screenIsUnlocked")) { $0.setLocked(false) }
+        elementWatcher.onUpdate = { [weak self] rects in self?.updateElements(rects) }
+        attentionWatcher.onChange = { [weak self] point, _ in self?.updateAttention(point) }
+        eventSink = { _, event in Self.playSound(for: event) }
         observeStore()
         reconcile()
     }
@@ -177,8 +184,41 @@ final class RoamCoordinator {
         }
         for key in pets.keys where !wanted.contains(key) { remove(key) }
         if pets.isEmpty { removeMonitors() } else if monitors.isEmpty { installMonitors() }
+        let sounds = PetSounds.shared
+        sounds.enabled = model.store.settings.petSounds && !quiet
+        sounds.volume = model.store.settings.petSoundVolume
         updateVisibility()
         kick()
+    }
+
+    /// Scanning other apps' controls costs Accessibility round trips, so it runs only while a visible pet
+    /// can stand on them; attention feeds only Extra Curious pets.
+    private func updateSenses() {
+        let shown = pets.values.filter { !$0.hidden }
+        let wantElements = shown.contains { $0.walkOnWindows }
+        let wantAttention = shown.contains { $0.mode == .curious }
+        if wantElements != scanningElements {
+            scanningElements = wantElements
+            if wantElements { elementWatcher.start() } else { elementWatcher.stop(); updateElements([]) }
+        }
+        if wantAttention != watchingAttention {
+            watchingAttention = wantAttention
+            if wantAttention { attentionWatcher.start() } else { attentionWatcher.stop(); updateAttention(nil) }
+        }
+    }
+
+    private static func playSound(for event: RoamEvent) {
+        let sounds = PetSounds.shared
+        switch event {
+        case .landed(let impact): sounds.play(.land, intensity: min(1, impact / 900))
+        case .jumped: sounds.play(.hop)
+        case .grabbedWall: sounds.play(.grab)
+        case .slid: sounds.play(.slide)
+        case .climbed: sounds.play(.climb)
+        case .startled: sounds.play(.startle)
+        case .woke: sounds.play(.sigh)
+        case .turned: break
+        }
     }
 
     private func create(_ key: PetKey, widget: WidgetConfig, dock: Dock) {
@@ -470,6 +510,7 @@ final class RoamCoordinator {
     private func touched(_ key: PetKey) {
         guard let pet = pets[key], pet.state.activity != .carried else { return }
         pet.holdUntil = Date.now.addingTimeInterval(3)
+        PetSounds.shared.play(.chirp)
         if pet.state.activity == .walking || pet.state.activity == .napping {
             pet.state.activity = .resting
             pet.state.timeLeft = 3
@@ -541,6 +582,7 @@ final class RoamCoordinator {
                 schedule(pet)
             }
         }
+        updateSenses()
     }
 
     // MARK: Motion

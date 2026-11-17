@@ -50,7 +50,11 @@ struct PersonalitySettings: View {
                 }
                 .pickerStyle(.segmented)
                 Toggle("Quiet mode", isOn: model.setting(\.petQuiet))
-                note("Applies to the dock pet.")
+                Toggle("Sound effects", isOn: model.setting(\.petSounds))
+                if model.store.settings.petSounds {
+                    Slider(value: model.setting(\.petSoundVolume), in: 0...1) { Text("Volume") }
+                }
+                note("Quiet mode also mutes the pet. Extra Curious, in the pet's roaming menu, lets it follow your typing.")
             }
 
             Section("Type") {
