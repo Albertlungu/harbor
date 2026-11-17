@@ -63,9 +63,12 @@ struct DockBarLayout: View {
             }
 
             if !dock.style.effects.isEmpty && dock.layout == .dock {
-                EffectsView(effects: dock.style.effects, intensity: dock.style.effectIntensity)
+                EffectsView(effects: dock.style.effects, intensity: dock.style.effectIntensity, edge: state.hugEdge,
+                            pointer: state.pointer.map { $0 - (horizontal ? bg.minX : bg.minY) },
+                            paused: state.contentOpacity == 0 || state.hideOffset != .zero)
                     .frame(width: bg.width, height: bg.height)
-                    .clipShape(RoundedRectangle(cornerRadius: CGFloat(dock.style.thickness * dock.style.cornerStyle.fraction)))
+                    .clipShape(RoundedRectangle(cornerRadius: CGFloat(dock.style.thickness * dock.style.cornerStyle.fraction),
+                                                style: .continuous))
                     .offset(x: bg.minX, y: bg.minY)
                     .allowsHitTesting(false)
             }
