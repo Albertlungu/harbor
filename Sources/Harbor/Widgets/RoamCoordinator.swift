@@ -51,6 +51,7 @@ private final class RoamPet {
     var bars: [CGRect] = []
     var walkOnWindows = true
     var seesLedges = true
+    var hidesInFullscreen = false
     var hidden = true
     var ticker: RoamTicker?
     var beat: Task<Void, Never>?
@@ -279,6 +280,7 @@ final class RoamCoordinator {
         pet.mode = RoamBrain.effectiveMode(widget.roamMode, quiet: quiet)
         pet.walkOnWindows = widget.walksOnWindows
         pet.seesLedges = widget.seesLedges
+        pet.hidesInFullscreen = widget.hidesInFullscreen
         // The window server leaves non-shareable windows out of the Space-switch animation as well as out of
         // recordings, so hiding is opt-in.
         let sharing: NSWindow.SharingType = widget.hidesFromRecordings ? .none : .readOnly
@@ -690,7 +692,7 @@ final class RoamCoordinator {
     private func updateVisibility() {
         for pet in pets.values {
             let frame = pet.screen.geometry.frame.insetBy(dx: 1, dy: 1)
-            let hide = locked || fullscreen.contains { $0.intersects(frame) }
+            let hide = locked || (pet.hidesInFullscreen && fullscreen.contains { $0.intersects(frame) })
             guard hide != pet.hidden else { continue }
             pet.hidden = hide
             if hide {

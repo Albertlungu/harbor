@@ -30,6 +30,9 @@ enum FullscreenSpaces {
                    spaceType: unsafeBitCast(type, to: SpaceType.self))
     }()
 
+    /// Whether the window server answered; without it callers fall back to comparing window sizes.
+    static var isAvailable: Bool { api != nil }
+
     /// Frames, in AppKit coordinates, of displays whose current Space is a fullscreen app.
     static func frames() -> [CGRect] {
         guard let api else { return [] }

@@ -85,7 +85,12 @@ final class NativeDock {
             let current = readPlist() ?? [:]
             var saved: [String: Any] = [:]
             saved["autohide"] = current["autohide"] as? Bool ?? false
-            if let delay = current["autohide-delay"] { saved["autohide-delay"] = delay }
+            // A relaunch can start before the previous session's restore lands; saving Harbor's own hidden delay
+            // as the original would leave the Dock hidden forever once Harbor quits, so drop it and let restore
+            // fall back to the macOS default.
+            if let delay = current["autohide-delay"], ((delay as? NSNumber)?.doubleValue ?? 0) < Self.hiddenDelay {
+                saved["autohide-delay"] = delay
+            }
             defaults.set(saved, forKey: Self.savedKey)
         }
         let ok = shell(Self.hideScript)

@@ -16,6 +16,7 @@ extension WidgetConfig {
     var staysOnOwnScreen: Bool { string("roamScreens", "all") == "own" }
     var hidesFromRecordings: Bool { bool("roamHideFromRecordings", false) }
     var seesLedges: Bool { bool("roamVision", true) }
+    var hidesInFullscreen: Bool { bool("roamHideFullscreen", false) }
 
     var roamHome: RoamHome? {
         guard case .object(let fields)? = state["roamHome"], let x = fields["x"]?.doubleValue,

@@ -73,6 +73,7 @@ private struct PetRoamSettings: View {
                 Text("The dock's own screen").tag("own")
             }
             Toggle("Hide pet in screen recordings", isOn: fields.bool("roamHideFromRecordings", false))
+            Toggle("Hide pet in fullscreen apps", isOn: fields.bool("roamHideFullscreen", false))
             Toggle("See ledges on screen", isOn: fields.bool("roamVision", true))
                 .help("Looks at the screen now and then for long edges to stand on. Needs Screen Recording permission.")
                 .disabled(!RoamVisionScanner.isAllowed)

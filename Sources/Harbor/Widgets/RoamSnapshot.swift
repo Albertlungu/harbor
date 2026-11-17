@@ -25,7 +25,8 @@ enum RoamSnapshot {
             guard let pid = window[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
                   regularPIDs.contains(pid) else { continue }
             let frame = CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
-            if pid == frontPID,
+            // The size match is only a fallback: some apps keep a screen-sized window open outside fullscreen.
+            if pid == frontPID, !FullscreenSpaces.isAvailable,
                let screen = screens.first(where: { abs(frame.width - $0.width) < 1 && abs(frame.height - $0.height) < 1
                    && frame.intersects($0) }) {
                 fullscreen.append(screen)
