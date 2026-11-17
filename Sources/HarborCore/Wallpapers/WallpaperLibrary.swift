@@ -5,9 +5,9 @@ public struct WallpaperLibrary: Codable, Equatable, Sendable {
     public struct Favourite: Codable, Equatable, Sendable {
         public var wallpaper: Wallpaper
         /// The season collection it was saved from, so seasonal changes can prefer it.
-        public var season: Season?
+        public var season: WallpaperSeason?
 
-        public init(wallpaper: Wallpaper, season: Season?) {
+        public init(wallpaper: Wallpaper, season: WallpaperSeason?) {
             self.wallpaper = wallpaper
             self.season = season
         }
@@ -17,7 +17,7 @@ public struct WallpaperLibrary: Codable, Equatable, Sendable {
     public var changeWithSeasons = false
     public var scaling: WallpaperScaling = .fill
     /// The season whose wallpaper was last applied automatically.
-    public var appliedSeason: Season?
+    public var appliedSeason: WallpaperSeason?
     /// When the seasonal check last ran, so it runs at most once a day.
     public var lastCheck: Date?
 
@@ -39,7 +39,7 @@ public struct WallpaperLibrary: Codable, Equatable, Sendable {
 
     public func isFavourite(_ id: String) -> Bool { favourites.contains { $0.wallpaper.id == id } }
 
-    public mutating func toggleFavourite(_ wallpaper: Wallpaper, season: Season?) {
+    public mutating func toggleFavourite(_ wallpaper: Wallpaper, season: WallpaperSeason?) {
         if let i = favourites.firstIndex(where: { $0.wallpaper.id == wallpaper.id }) {
             favourites.remove(at: i)
         } else {
@@ -78,15 +78,15 @@ public enum WallpaperScaling: String, Codable, CaseIterable, Sendable {
 public enum SeasonalChange {
     /// The season to switch to, or nil when nothing should happen: the feature is off,
     /// it already checked today, or the season's wallpaper is already applied.
-    public static func due(_ library: WallpaperLibrary, now: Date, calendar: Calendar = .current) -> Season? {
+    public static func due(_ library: WallpaperLibrary, now: Date, calendar: Calendar = .current) -> WallpaperSeason? {
         guard library.changeWithSeasons else { return nil }
         if let last = library.lastCheck, calendar.isDate(last, inSameDayAs: now) { return nil }
-        let season = Season.of(now, calendar: calendar)
+        let season = WallpaperSeason.of(now, calendar: calendar)
         return season == library.appliedSeason ? nil : season
     }
 
     /// A favourite saved from this season's collection, picked with `roll` in 0..<1.
-    public static func favourite(for season: Season, in library: WallpaperLibrary, roll: Double) -> Wallpaper? {
+    public static func favourite(for season: WallpaperSeason, in library: WallpaperLibrary, roll: Double) -> Wallpaper? {
         let picks = library.favourites.filter { $0.season == season }.map(\.wallpaper)
         guard !picks.isEmpty else { return nil }
         return picks[min(Int(roll * Double(picks.count)), picks.count - 1)]

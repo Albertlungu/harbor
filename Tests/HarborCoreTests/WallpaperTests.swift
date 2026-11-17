@@ -89,11 +89,11 @@ import Testing
     // MARK: Seasons
 
     @Test func seasonsByMonth() {
-        #expect([12, 1, 2].map(Season.of(month:)) == [.winter, .winter, .winter])
-        #expect([3, 5].map(Season.of(month:)) == [.spring, .spring])
-        #expect([6, 8].map(Season.of(month:)) == [.summer, .summer])
-        #expect([9, 11].map(Season.of(month:)) == [.autumn, .autumn])
-        for season in Season.allCases { #expect(!season.themes.isEmpty) }
+        #expect([12, 1, 2].map(WallpaperSeason.of(month:)) == [.winter, .winter, .winter])
+        #expect([3, 5].map(WallpaperSeason.of(month:)) == [.spring, .spring])
+        #expect([6, 8].map(WallpaperSeason.of(month:)) == [.summer, .summer])
+        #expect([9, 11].map(WallpaperSeason.of(month:)) == [.autumn, .autumn])
+        for season in WallpaperSeason.allCases { #expect(!season.themes.isEmpty) }
     }
 
     @Test func collectionResolvesCurrentSeason() {

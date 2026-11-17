@@ -78,13 +78,13 @@ public enum WallpaperPalette {
     ]
 }
 
-public enum Season: String, Codable, CaseIterable, Sendable {
+public enum WallpaperSeason: String, Codable, CaseIterable, Sendable {
     case winter, spring, summer, autumn
 
     public var title: String { rawValue.capitalized }
 
     /// The meteorological season for a month (1...12) in the northern hemisphere.
-    public static func of(month: Int) -> Season {
+    public static func of(month: Int) -> WallpaperSeason {
         switch month {
         case 3...5: .spring
         case 6...8: .summer
@@ -93,7 +93,7 @@ public enum Season: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    public static func of(_ date: Date, calendar: Calendar = .current) -> Season {
+    public static func of(_ date: Date, calendar: Calendar = .current) -> WallpaperSeason {
         of(month: calendar.component(.month, from: date))
     }
 
@@ -113,13 +113,13 @@ public enum Season: String, Codable, CaseIterable, Sendable {
 public enum WallpaperCollection: Hashable, Sendable {
     case library
     case currentSeason
-    case season(Season)
+    case season(WallpaperSeason)
     case favourites
 
     /// The concrete season, with the current one resolved against `date`.
-    public func season(on date: Date, calendar: Calendar = .current) -> Season? {
+    public func season(on date: Date, calendar: Calendar = .current) -> WallpaperSeason? {
         switch self {
-        case .currentSeason: Season.of(date, calendar: calendar)
+        case .currentSeason: WallpaperSeason.of(date, calendar: calendar)
         case .season(let s): s
         case .library, .favourites: nil
         }
