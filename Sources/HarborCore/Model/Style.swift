@@ -50,7 +50,10 @@ public enum OpacityPreset: String, Codable, CaseIterable, Sendable {
         }
     }
 }
-public enum EffectKind: String, Codable, CaseIterable, Sendable { case snow, rays, fireworks }
+public enum EffectKind: String, Codable, CaseIterable, Sendable {
+    case snow, rays, fireworks
+    case fireflies, leaves, petals, rain, bubbles, aurora, stars, hearts, sparkles, waves, sky, ripples, trail, seasonal
+}
 
 public enum CollapseButtonPosition: String, Codable, CaseIterable, Sendable { case auto, start, center, end }
 public enum CollapseButtonStyle: String, Codable, CaseIterable, Sendable { case arrow, symbol, text, none }
@@ -188,7 +191,8 @@ public struct DockStyle: Codable, Hashable, Sendable {
         showBorder = c(.showBorder, d.showBorder)
         borderWidth = c(.borderWidth, d.borderWidth)
         borderColor = c(.borderColor, d.borderColor)
-        effects = c(.effects, d.effects)
+        // Decoded leniently so an effect from a newer build drops out instead of clearing them all.
+        effects = Set(c(.effects, [String]()).compactMap(EffectKind.init(rawValue:)))
         effectIntensity = c(.effectIntensity, d.effectIntensity)
         magnify = c(.magnify, d.magnify)
         maxScale = c(.maxScale, d.maxScale)
