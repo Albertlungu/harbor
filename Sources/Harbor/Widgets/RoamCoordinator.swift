@@ -45,6 +45,7 @@ private final class RoamPet {
     var home: RoamHome
     var mode: RoamMode = .patrol
     var surfaces: [RoamSurface] = []
+    var bars: [CGRect] = []
     var walkOnWindows = true
     var hidden = true
     var task: Task<Void, Never>?
@@ -230,14 +231,20 @@ final class RoamCoordinator {
         return abs(point.y - y) < 2
     }
 
-    private func rebuildSurfaces(_ pet: RoamPet) {
-        guard let model else { return }
-        let frame = pet.screen.geometry.frame
-        let bars = model.dockController.windows.values
-            .filter { $0.screen.id == pet.screen.id && !$0.barFrame.isEmpty }
+    /// Only bars that can be seen: an auto-hidden dock keeps its resting frame, and standing on it
+    /// would leave the pet floating where the bar would be.
+    private func visibleBars(on screen: ConnectedScreen) -> [CGRect] {
+        guard let model else { return [] }
+        return model.dockController.windows.values
+            .filter { $0.screen.id == screen.id && $0.showsBar }
             .map(\.barFrame)
+    }
+
+    private func rebuildSurfaces(_ pet: RoamPet) {
+        let frame = pet.screen.geometry.frame
+        pet.bars = visibleBars(on: pet.screen)
         pet.surfaces = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen),
-                                          windows: windows.filter { $0.frame.intersects(frame) }, docks: bars,
+                                          windows: windows.filter { $0.frame.intersects(frame) }, docks: pet.bars,
                                           walkOnWindows: pet.walkOnWindows)
     }
 
@@ -483,6 +490,8 @@ final class RoamCoordinator {
         pet.lastStep = now
         let before = pet.state.activity
         if Date.now < pet.holdUntil, pet.state.activity != .falling { present(pet); return }
+        // Docks hide and reveal between window snapshots; the pet should not stand on one that slid away.
+        if visibleBars(on: pet.screen) != pet.bars { rebuildSurfaces(pet) }
         let env = RoamEnvironment(surfaces: pet.surfaces, mode: pet.mode, home: pet.home.point,
                                   pointer: NSEvent.mouseLocation, lively: pet.driver.lively,
                                   screenMinX: pet.screen.geometry.frame.minX, screenMaxX: pet.screen.geometry.frame.maxX)
@@ -558,8 +567,10 @@ final class RoamCoordinator {
         let own = ProcessInfo.processInfo.processIdentifier
         let frontPID = front?.processIdentifier == own ? nil : front?.processIdentifier
         let frames = NSScreen.screens.map(\.frame)
+        let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+            .map(\.processIdentifier))
         let result = await Task.detached(priority: .utility) {
-            RoamSnapshot.take(frontPID: frontPID, ownPID: own, screens: frames)
+            RoamSnapshot.take(frontPID: frontPID, ownPID: own, regularPIDs: regular, screens: frames)
         }.value
         windows = result.windows
         fullscreen = result.fullscreen

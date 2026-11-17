@@ -89,6 +89,19 @@ import Testing
         #expect(list.contains { $0.kind == .dockBar && $0.y == 70 && $0.minX == 300 && $0.maxX == 700 })
     }
 
+    @Test func floorIsTheTrueScreenBottomWhenNoDockIsShown() {
+        // A second display below the first: the floor is its own bottom edge, not y = 0 or a dock's resting top.
+        let lower = CGRect(x: 0, y: -900, width: 1440, height: 900)
+        let list = RoamSurfaces.build(screen: lower, menuBarHeight: 0, windows: [], docks: [], walkOnWindows: true)
+        #expect(list == [RoamSurface(kind: .floor, y: -900, minX: 0, maxX: 1440)])
+        var state = RoamState(x: 700, y: -400)
+        state.activity = .falling
+        let env = RoamEnvironment(surfaces: list, mode: .patrol, home: .zero, pointer: .zero, lively: false,
+                                  screenMinX: 0, screenMaxX: 1440)
+        run(&state, seconds: 3, env: env)
+        #expect(state.y == -900)
+    }
+
     @Test func tinyLedgesAreDropped() {
         let sliver = RoamWindow(frame: CGRect(x: 100, y: 100, width: 10, height: 100))
         #expect(surfaces(windows: [sliver]).contains { $0.kind == .window } == false)

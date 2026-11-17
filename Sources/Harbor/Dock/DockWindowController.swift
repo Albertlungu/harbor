@@ -407,6 +407,12 @@ final class DockWindowController {
 
     private var suppressedByFullscreen: Bool { fullscreenHidden && !edgeRevealed }
 
+    /// Whether the bar can be seen right now; an auto-hidden or faded bar keeps its resting `barFrame`.
+    var showsBar: Bool {
+        panel.isVisible && !barFrame.isEmpty && !suppressedByFullscreen && !autoHidden
+            && !(windowHoverHidden && !edgeRevealed)
+    }
+
     /// "Show at screen edge while hidden": a pointer resting at the edge zone brings the dock back until it leaves.
     private func updateEdgeReveal(pointer: CGPoint, now: Date) {
         guard dock.behavior.showAtEdgeWhileHidden, dock.position.mode == .pinned, !isNotch,

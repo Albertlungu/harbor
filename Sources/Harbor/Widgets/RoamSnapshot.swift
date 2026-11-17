@@ -10,7 +10,9 @@ enum RoamSnapshot {
         var fullscreen: [CGRect]
     }
 
-    static func take(frontPID: pid_t?, ownPID: pid_t, screens: [CGRect]) -> Result {
+    /// `regularPIDs` are the apps with a Dock icon; system processes such as the Dock, Control Center
+    /// and the window server own layer-0 windows too, and none of them are things to stand on.
+    static func take(frontPID: pid_t?, ownPID: pid_t, regularPIDs: Set<pid_t>, screens: [CGRect]) -> Result {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]], let primaryHeight = screens.first?.maxY else { return Result(windows: [], fullscreen: []) }
         var windows: [RoamWindow] = []
@@ -20,15 +22,16 @@ enum RoamSnapshot {
             guard (window[kCGWindowLayer as String] as? Int) == 0,
                   let dict = window[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: dict) else { continue }
-            let pid = window[kCGWindowOwnerPID as String] as? pid_t
+            guard let pid = window[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
+                  regularPIDs.contains(pid) else { continue }
             let frame = CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
-            if let frontPID, pid == frontPID,
+            if pid == frontPID,
                let screen = screens.first(where: { abs(frame.width - $0.width) < 1 && abs(frame.height - $0.height) < 1
                    && frame.intersects($0) }) {
                 fullscreen.append(screen)
                 continue
             }
-            guard pid != ownPID, (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+            guard (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   frame.width >= 80, frame.height >= 40 else { continue }
             let isFront = !foundFront && pid == frontPID
             if isFront { foundFront = true }
