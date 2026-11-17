@@ -97,6 +97,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public var roundScreenCorners = false
     public var roundTopCorners = false
     public var screenCornerRadius = 14.0
+    /// Where the radius slider snaps: the radius that lines up with the display's own top corners.
+    public var screenCornerMatch = 10.0
     /// Briefly shows an auto-hidden dock when a download lands in a folder pinned on it.
     public var peekOnDownload = true
 
@@ -152,6 +154,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
         roundScreenCorners = c(.roundScreenCorners, d.roundScreenCorners)
         roundTopCorners = c(.roundTopCorners, d.roundTopCorners)
         screenCornerRadius = c(.screenCornerRadius, d.screenCornerRadius)
+        screenCornerMatch = c(.screenCornerMatch, d.screenCornerMatch)
         peekOnDownload = c(.peekOnDownload, d.peekOnDownload)
         openAnimation = c(.openAnimation, d.openAnimation)
         openEffect = c(.openEffect, d.openEffect)

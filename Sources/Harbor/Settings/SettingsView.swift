@@ -149,7 +149,7 @@ private struct GeneralSettings: View {
                 Toggle("Round the bottom corners of the screen", isOn: model.setting(\.roundScreenCorners))
                 if model.store.settings.roundScreenCorners {
                     Toggle("Round the top corners too", isOn: model.setting(\.roundTopCorners))
-                    Slider(value: model.setting(\.screenCornerRadius), in: 6...32) { Text("Radius") }
+                    CornerRadiusSlider()
                 }
                 Text("Masks the corners in black, like the rounded displays on newer MacBooks. The masks show in screenshots and recordings.")
                     .font(.caption).foregroundStyle(Tokens.textMuted)
