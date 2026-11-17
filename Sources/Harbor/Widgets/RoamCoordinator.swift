@@ -141,6 +141,7 @@ final class RoamCoordinator {
     func start(model: AppModel) {
         guard self.model == nil else { return }
         self.model = model
+        WeatherController.shared.petSource = self
         let nc = NotificationCenter.default
         let ws = NSWorkspace.shared.notificationCenter
         let distributed = DistributedNotificationCenter.default()
@@ -920,6 +921,21 @@ final class RoamCoordinator {
         if !pets.isEmpty { startSnapshotLoopIfNeeded() }
         gate?.resume()
         gate = nil
+    }
+}
+
+// MARK: Weather
+
+/// The desktop weather sees where pets stand and may ask one for a hop toward something to play with.
+extension RoamCoordinator: WeatherPetSource {
+    var weatherPets: [(id: String, feet: CGPoint, unit: Double)] {
+        petBodies.map { ("\($0.key.dock)/\($0.key.item)", $0.feet, Double($0.unit)) }
+    }
+
+    /// Weather asks for playful hops; quiet mode keeps the pet still.
+    func weatherNudge(_ id: String, impulse: CGVector) {
+        guard !quiet, let body = petBodies.first(where: { "\($0.key.dock)/\($0.key.item)" == id }) else { return }
+        nudge(body.key, impulse: impulse)
     }
 }
 

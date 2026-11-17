@@ -22,6 +22,7 @@ struct MenuBarMenu: View {
         MediaSubmenu()
         PetSubmenu()
         Button("Wallpapers…") { WallpaperWindow.shared.show() }
+        WeatherSubmenu()
         Divider()
 
         if model.store.docks.isEmpty {
