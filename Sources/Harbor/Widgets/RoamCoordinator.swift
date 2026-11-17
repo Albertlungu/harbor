@@ -50,6 +50,7 @@ private final class RoamPet {
     var nav: RoamNav?
     var bars: [CGRect] = []
     var walkOnWindows = true
+    var seesLedges = true
     var hidden = true
     var ticker: RoamTicker?
     var beat: Task<Void, Never>?
@@ -127,6 +128,9 @@ final class RoamCoordinator {
     private var watchingAttention = false
     private var lastGazeTick = Date.distantPast
     private var menusOpen = 0
+    private let vision = RoamVisionScanner()
+    /// Edges found in pictures of the screen, in AppKit coordinates, standing in for elements.
+    private var visionLedges: [CGRect] = []
 
     /// Quiet mode (Settings › Personality) keeps a roaming pet hanging out in one place.
     private var quiet: Bool { model?.store.settings.petQuiet ?? false }
@@ -151,6 +155,7 @@ final class RoamCoordinator {
         watch(nc, NSMenu.didBeginTrackingNotification) { $0.menuTracking(true) }
         watch(nc, NSMenu.didEndTrackingNotification) { $0.menuTracking(false) }
         elementWatcher.onUpdate = { [weak self] rects in self?.updateElements(rects) }
+        vision.onUpdate = { [weak self] frame, rects in self?.updateVision(frame, rects) }
         attentionWatcher.onChange = { [weak self] point, _ in self?.updateAttention(point) }
         eventSink = { _, event in Self.playSound(for: event) }
         observeStore()
@@ -185,6 +190,7 @@ final class RoamCoordinator {
 
     private func screensChanged() {
         for pet in pets.values { pet.screen = screen(id: pet.screen.id) ?? pet.screen }
+        vision.screensChanged()
         requestSnapshot()
     }
 
@@ -271,6 +277,7 @@ final class RoamCoordinator {
     private func refresh(_ pet: RoamPet, widget: WidgetConfig, dock: Dock) {
         pet.mode = RoamBrain.effectiveMode(widget.roamMode, quiet: quiet)
         pet.walkOnWindows = widget.walksOnWindows
+        pet.seesLedges = widget.seesLedges
         // The window server leaves non-shareable windows out of the Space-switch animation as well as out of
         // recordings, so hiding is opt-in.
         let sharing: NSWindow.SharingType = widget.hidesFromRecordings ? .none : .readOnly
@@ -337,9 +344,10 @@ final class RoamCoordinator {
         let frame = pet.screen.geometry.frame
         let onScreen = windows.filter { $0.frame.intersects(frame) }
         pet.bars = visibleBars(on: pet.screen)
+        let seen = pet.seesLedges ? visionLedges : []
         let surfaces = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
                                           docks: pet.bars, walkOnWindows: pet.walkOnWindows,
-                                          elements: elements.filter { $0.intersects(frame) })
+                                          elements: (elements + seen).filter { $0.intersects(frame) })
         let walls = RoamSurfaces.walls(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
                                        walkOnWindows: pet.walkOnWindows)
         let ceilings = RoamSurfaces.ceilings(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
@@ -438,7 +446,26 @@ final class RoamCoordinator {
     func updateElements(_ rects: [CGRect]) {
         guard rects != elements else { return }
         elements = rects
+        vision.markDirty()
         for pet in pets.values { rebuildSurfaces(pet) }
+    }
+
+    private func updateVision(_ frame: CGRect, _ rects: [CGRect]) {
+        let next = visionLedges.filter { !frame.intersects($0) } + rects
+        guard next != visionLedges else { return }
+        visionLedges = next
+        for pet in pets.values { rebuildSurfaces(pet) }
+    }
+
+    /// Looks at the screen of a pet that is up and moving about, if anything changed since the last look.
+    private func lookForLedges() {
+        guard let pet = pets.values.first(where: { !$0.hidden && !$0.frozen && $0.seesLedges && $0.walkOnWindows
+                                                   && RoamBrain.needsFrames($0.state) }) else { return }
+        let frame = pet.screen.geometry.frame
+        let known = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen),
+                                       windows: windows.filter { $0.frame.intersects(frame) }, docks: pet.bars,
+                                       walkOnWindows: true, elements: elements.filter { $0.intersects(frame) })
+        vision.lookIfDue(frame: frame, menuBarHeight: menuBarHeight(pet.screen), known: known)
     }
 
     /// Every roaming pet that is out and visible, for layers that react to it.
@@ -607,7 +634,7 @@ final class RoamCoordinator {
         let handler: (NSEvent) -> Void = { [weak self] event in
             MainActor.assumeIsolated { self?.pointerEvent(event) }
         }
-        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseUp, .leftMouseDown]
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseUp, .leftMouseDown, .scrollWheel]
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in handler(event); return event }) {
             monitors.append(local)
@@ -620,6 +647,10 @@ final class RoamCoordinator {
     }
 
     private func pointerEvent(_ event: NSEvent) {
+        if event.type == .scrollWheel {
+            vision.markDirty()
+            return
+        }
         // Pressing on a pet holds it in place until the button comes up or the press becomes a carry.
         if event.type == .leftMouseDown {
             for pet in pets.values where event.window === pet.panel { freeze(pet, true) }
@@ -815,6 +846,7 @@ final class RoamCoordinator {
 
     private func requestSnapshot() {
         forceSnapshot = true
+        vision.markDirty()
         startSnapshotLoopIfNeeded()
         kick()
     }
@@ -872,10 +904,12 @@ final class RoamCoordinator {
         let result = await Task.detached(priority: .utility) {
             RoamSnapshot.take(frontPID: frontPID, ownPID: own, regularPIDs: regular, screens: frames)
         }.value
+        if result.windows != windows { vision.markDirty() }
         windows = result.windows
         settleFullscreen(result.fullscreen)
         for pet in pets.values { rebuildSurfaces(pet) }
         updateVisibility()
+        lookForLedges()
     }
 
     private func waitForWork() async {
