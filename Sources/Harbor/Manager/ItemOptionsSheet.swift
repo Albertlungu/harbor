@@ -118,23 +118,22 @@ private struct ItemOptionsForm: View {
             }
         }
         Section("Browser") {
-            Picker("Layout", selection: field(\.folder.layout, default: .grid)) {
-                Text("Grid").tag(FolderLayout.grid)
-                Text("List").tag(FolderLayout.list)
-                Text("Fan").tag(FolderLayout.fan)
+            Picker("View", selection: field(\.folder.layout, default: .grid)) {
+                ForEach(FolderLayout.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            .pickerStyle(.segmented)
             if item.folder.layout == .grid {
                 Stepper("Columns: \(item.folder.columns)", value: field(\.folder.columns, default: 5), in: 2...10)
                 ValueSlider(title: "Icon size", value: field(\.folder.iconSize, default: 48), range: 24...96, unit: " pt")
                 Toggle("Show file names", isOn: field(\.folder.showNames, default: true))
             }
             Picker("Sort by", selection: field(\.folder.sort, default: .name)) {
-                Text("Name").tag(FolderSort.name)
-                Text("Kind").tag(FolderSort.kind)
-                Text("Date modified").tag(FolderSort.dateModified)
+                ForEach(FolderSort.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            Toggle("Reverse order", isOn: field(\.folder.reverse, default: false))
+            Picker("Order", selection: field(\.folder.ascending, default: true)) {
+                Text("Ascending").tag(true)
+                Text("Descending").tag(false)
+            }
+            .pickerStyle(.segmented)
             Toggle("Folders first", isOn: field(\.folder.foldersFirst, default: true))
             Toggle("Show hidden files", isOn: field(\.folder.showHidden, default: false))
             Toggle("Show previews", isOn: field(\.folder.showPreviews, default: true))

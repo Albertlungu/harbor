@@ -21,7 +21,8 @@ final class FolderWatcher {
     @ObservationIgnored private var sources: [String: DispatchSourceFileSystemObject] = [:]
     @ObservationIgnored private var tracker: DownloadTracker?
     @ObservationIgnored private var rescanTask: Task<Void, Never>?
-    @ObservationIgnored private var clearTasks: [String: Task<Void, Never>] = [:]
+    /// The latest finished download per folder, selected when its browser next opens.
+    @ObservationIgnored private var newest: [String: URL] = [:]
 
     static let downloadsPath: String = {
         let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
@@ -56,15 +57,25 @@ final class FolderWatcher {
         if arrivals[path] != nil { arrivals[path] = nil }
     }
 
+    /// The download to highlight in a browser that is opening on `url`, handed out once.
+    func takeNewest(for url: URL) -> URL? {
+        newest.removeValue(forKey: Self.key(for: url))
+    }
+
     func revision(for url: URL) -> Int { revisions[Self.key(for: url)] ?? 0 }
 
     private func watch(_ path: String) -> DispatchSourceFileSystemObject? {
+        Self.makeSource(path) { [weak self] in self?.changed(path) }
+    }
+
+    /// A live source for one directory; the folder browser uses it for subfolders it steps into.
+    static func makeSource(_ path: String, onChange: @escaping @MainActor () -> Void) -> DispatchSourceFileSystemObject? {
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return nil }
         // Directory write events fire when entries are added, renamed or removed, not while a file grows.
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.changed(path) }
+        source.setEventHandler {
+            MainActor.assumeIsolated { onChange() }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
@@ -81,7 +92,7 @@ final class FolderWatcher {
         guard var tracker else { return }
         let finished = tracker.update(listing(Self.downloadsPath))
         self.tracker = tracker
-        if !finished.isEmpty { arrived(finished.count) }
+        if let last = finished.last { arrived(finished.count, newest: last) }
         rescanTask?.cancel()
         guard tracker.hasPending, attempts > 0 else { return }
         rescanTask = Task { @MainActor [weak self] in
@@ -91,21 +102,17 @@ final class FolderWatcher {
         }
     }
 
-    private func arrived(_ count: Int) {
+    /// The badge stays until the folder is opened, so a download finished while away is still noticed.
+    private func arrived(_ count: Int, newest name: String) {
         let path = Self.downloadsPath
         arrivals[path, default: 0] += count
         pulses[path, default: 0] += 1
         revisions[path, default: 0] += 1
-        clearTasks[path]?.cancel()
-        clearTasks[path] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(20))
-            guard !Task.isCancelled else { return }
-            self?.arrivals[path] = nil
-        }
+        newest[path] = URL(fileURLWithPath: path).appendingPathComponent(name)
         guard let model, model.store.settings.peekOnDownload else { return }
         for dock in model.store.docks where dock.items.contains(where: { $0.kind == .folder && $0.url.map(Self.key) == path }) {
             for controller in model.dockController.controllers(for: dock.id) {
-                controller.peek(duration: 3)
+                controller.peek(duration: 6)
             }
         }
     }

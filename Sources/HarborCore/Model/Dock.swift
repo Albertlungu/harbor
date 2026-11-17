@@ -61,8 +61,11 @@ public struct WidgetConfig: Codable, Hashable, Sendable {
 
 public enum ItemKind: String, Codable, CaseIterable, Sendable { case app, file, folder, widget }
 public enum FolderClick: String, Codable, CaseIterable, Sendable { case inherit, browse, openInFinder }
-public enum FolderLayout: String, Codable, CaseIterable, Sendable { case grid, list, fan }
-public enum FolderSort: String, Codable, CaseIterable, Sendable { case name, kind, dateModified }
+/// `grid` is Finder's icon view; the raw values predate the column and gallery views.
+public enum FolderLayout: String, Codable, CaseIterable, Sendable { case grid, list, columns, gallery, fan }
+public enum FolderSort: String, Codable, CaseIterable, Sendable {
+    case name, kind, dateLastOpened, dateAdded, dateModified, dateCreated, size
+}
 
 public struct FolderOptions: Codable, Hashable, Sendable {
     public var onClick: FolderClick = .inherit
