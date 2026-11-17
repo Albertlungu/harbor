@@ -404,7 +404,8 @@ public enum RoamBrain {
             } else if pick < (env.mode == .hangOut ? 0.45 : env.mode == .curious ? 0.1 : 0.15) {
                 s.activity = .sitting
                 s.timeLeft = 5 + roll() * 7
-            } else if env.mode == .curious || (env.mode == .patrol && pick < 0.15 + exploreChance),
+            } else if env.mode == .curious
+                        || (env.mode == .patrol && pick < 0.15 + exploreChance && !(s.preferMenuBar && ground.kind == .menuBar)),
                       let route = setOff(env, from: here, roll: roll) {
                 s.route = route
             } else {

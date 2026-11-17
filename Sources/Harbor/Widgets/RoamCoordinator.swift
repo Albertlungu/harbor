@@ -473,6 +473,9 @@ final class RoamCoordinator {
         if pet.state.activity == .walking || pet.state.activity == .napping {
             pet.state.activity = .resting
             pet.state.timeLeft = 3
+        } else if pet.state.activity == .climbing {
+            pet.state.activity = .clinging
+            pet.state.timeLeft = 3
         }
         present(pet)
     }
@@ -578,7 +581,11 @@ final class RoamCoordinator {
         let dt = min((now - pet.lastStep) / .seconds(1), 0.25)
         pet.lastStep = now
         let before = pet.state.activity
-        if Date.now < pet.holdUntil, pet.state.activity != .falling { present(pet); return }
+        // Being petted pauses it, but nothing stops a fall or a slide halfway.
+        if Date.now < pet.holdUntil, pet.state.activity != .falling, pet.state.activity != .sliding {
+            present(pet)
+            return
+        }
         // Docks hide and reveal between window snapshots; the pet should not stand on one that slid away.
         if visibleBars(on: pet.screen) != pet.bars { rebuildSurfaces(pet) }
         let events = RoamBrain.step(&pet.state, dt: dt, env: environment(pet), roll: { Double.random(in: 0..<1) })
