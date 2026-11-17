@@ -21,7 +21,8 @@ final class RoamPanel: NSPanel {
         isReleasedWhenClosed = false
         animationBehavior = .none
         level = .statusBar
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        // Matches the docks, so the pet stays put while Spaces slide past, fullscreen ones included.
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         sharingType = .none
         ignoresMouseEvents = true
     }
@@ -76,6 +77,8 @@ final class RoamCoordinator {
     private var cells: [PetKey: CGPoint] = [:]
     private var windows: [RoamWindow] = []
     private var fullscreen: [CGRect] = []
+    /// Screens that only just looked fullscreen, and since when.
+    private var fullscreenSeen: (screens: [CGRect], since: Date)?
     private var locked = false
     private var monitors: [Any] = []
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
@@ -580,7 +583,29 @@ final class RoamCoordinator {
     }
 
     private func snapshotInterval() -> Double? {
-        pets.values.filter { !$0.hidden }.compactMap { RoamBrain.snapshotInterval($0.state.activity) }.min()
+        var intervals = pets.values.filter { !$0.hidden }.compactMap { RoamBrain.snapshotInterval($0.state.activity) }
+        if fullscreenSeen != nil { intervals.append(0.3) }
+        // A pet hidden for a fullscreen app has to keep looking, or it stays gone until some other app activates.
+        if !locked, pets.values.contains(where: \.hidden) { intervals.append(1) }
+        return intervals.min()
+    }
+
+    /// Mid-swipe between Spaces the window list briefly shows screen-sized windows, so only a fullscreen
+    /// window that is still there a moment later hides the pet. Leaving fullscreen shows it at once.
+    private func settleFullscreen(_ seen: [CGRect]) {
+        fullscreen = fullscreen.filter(seen.contains)
+        let added = seen.filter { !fullscreen.contains($0) }
+        guard !added.isEmpty else {
+            fullscreenSeen = nil
+            return
+        }
+        if let pending = fullscreenSeen, pending.screens == added {
+            guard Date.now.timeIntervalSince(pending.since) >= 0.6 else { return }
+            fullscreen += added
+            fullscreenSeen = nil
+        } else {
+            fullscreenSeen = (added, .now)
+        }
     }
 
     private func takeSnapshot() async {
@@ -594,7 +619,7 @@ final class RoamCoordinator {
             RoamSnapshot.take(frontPID: frontPID, ownPID: own, regularPIDs: regular, screens: frames)
         }.value
         windows = result.windows
-        fullscreen = result.fullscreen
+        settleFullscreen(result.fullscreen)
         for pet in pets.values { rebuildSurfaces(pet) }
         updateVisibility()
     }
