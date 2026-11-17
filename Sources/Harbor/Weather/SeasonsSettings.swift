@@ -33,7 +33,7 @@ struct SeasonsSettings: View {
                 Toggle("Play with the pointer", isOn: model.setting(\.weather.interactions))
                 note(playNote(weather.season(at: .now)))
                 Toggle("Sounds", isOn: model.setting(\.weather.sounds))
-                Button("Clear the Desktop") { WeatherController.shared.clear() }
+                Button(Self.clearTitle(weather.season(at: .now))) { WeatherController.shared.clear() }
             }
             .disabled(!weather.enabled)
         }
@@ -54,6 +54,18 @@ struct SeasonsSettings: View {
 }
 
 /// The "Desktop Weather" submenu of the menu bar menu.
+extension SeasonsSettings {
+    /// Names what will be swept away, so it can't be mistaken for clearing files off the desktop.
+    static func clearTitle(_ season: Season) -> String {
+        switch season {
+        case .winter: "Clear All Snow"
+        case .autumn: "Clear All Leaves"
+        case .spring: "Clear Petals and Puddles"
+        case .summer: "Clear Seeds and Bubbles"
+        }
+    }
+}
+
 struct WeatherSubmenu: View {
     @Environment(AppModel.self) private var model
 
@@ -69,7 +81,7 @@ struct WeatherSubmenu: View {
             }
             Divider()
             Toggle("Let It Pile Up", isOn: model.setting(\.weather.accumulation))
-            Button("Clear the Desktop") { WeatherController.shared.clear() }
+            Button(SeasonsSettings.clearTitle(weather.season(at: .now))) { WeatherController.shared.clear() }
                 .disabled(!weather.enabled)
         }
     }

@@ -187,6 +187,8 @@ final class WeatherController {
                                         intensity: settings.intensity, accumulation: settings.accumulation,
                                         interactions: settings.interactions, evening: screen.world.evening,
                                         seed: UInt64.random(in: 1...UInt64.max))
+            // Drawn now rather than on the next tick, which can be a second away while the weather is still.
+            screen.render()
         }
         snapshot()
     }
@@ -315,7 +317,8 @@ final class WeatherController {
         // Reading the window list costs a few milliseconds, so it is quick only while something is being
         // dragged; app switches, Space changes and wake ask for a reading straight away.
         let interval = (now - lastDrag) / .seconds(1) < 0.5 ? 0.25 : 2.0
-        if (now - lastSnapshot) / .seconds(1) >= interval { snapshot() }
+        // A dock sliding away must drop its ledge at once, not at the next slow reading.
+        if (now - lastSnapshot) / .seconds(1) >= interval || visibleBars().map(\.bar) != lastBars { snapshot() }
         setClock(still ? .still : playing ? .play : .drift)
     }
 
@@ -373,6 +376,17 @@ final class WeatherController {
 
     // MARK: Window readings
 
+    private var lastBars: [CGRect] = []
+
+    /// Only bars on screen right now; an auto-hidden or faded dock keeps its resting frame but has no top to land on.
+    private func visibleBars() -> [(screen: String, bar: CGRect)] {
+        guard let model else { return [] }
+        return model.dockController.windows.values.filter(\.showsBar)
+            .map { (screen: $0.screen.id, bar: $0.barFrame) }
+            // Sorted so comparing against the last reading doesn't depend on dictionary order.
+            .sorted { ($0.bar.minX, $0.bar.minY) < ($1.bar.minX, $1.bar.minY) }
+    }
+
     private func snapshot() {
         lastSnapshot = .now
         guard !snapshotting, let model, !screens.isEmpty else { return }
@@ -381,7 +395,8 @@ final class WeatherController {
         let own = ProcessInfo.processInfo.processIdentifier
         let frontPID = front?.processIdentifier == own ? nil : front?.processIdentifier
         let frames = NSScreen.screens.map(\.frame)
-        let bars = model.dockController.windows.values.map { (screen: $0.screen.id, bar: $0.barFrame) }
+        let bars = visibleBars()
+        lastBars = bars.map(\.bar)
         // Harbor runs without a Dock icon, so its own pid is added for snow to settle on its windows.
         let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
             .map(\.processIdentifier)).union([own])
