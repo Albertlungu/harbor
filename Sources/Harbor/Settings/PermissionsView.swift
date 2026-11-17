@@ -87,6 +87,30 @@ enum Permission: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The privacy service name `tccutil` knows, for permissions a stale entry can block.
+    var tccService: String? {
+        switch self {
+        case .accessibility: "Accessibility"
+        case .screenRecording: "ScreenCapture"
+        case .automation, .bluetooth: nil
+        }
+    }
+
+    /// An entry left by an earlier build with a different signature can show as on in System
+    /// Settings while macOS still refuses this build. Removing Harbor's entry and asking again
+    /// replaces it with one for this build.
+    @MainActor func resetAndAsk() {
+        guard let service = tccService, let bundleID = Bundle.main.bundleIdentifier else { return }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        task.arguments = ["reset", service, bundleID]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return }
+        task.waitUntilExit()
+        request()
+    }
+
     @MainActor func openSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
     }
@@ -168,7 +192,7 @@ struct PermissionsView: View {
                     ForEach(Permission.relevant(for: model)) { row($0) }
                 }
                 Section {
-                    Text("Checks happen on this Mac and nothing is sent anywhere. If a permission shows Allowed in System Settings but Not allowed here, turn it off and on again there.")
+                    Text("Checks happen on this Mac and nothing is sent anywhere. If a permission shows Allowed in System Settings but Not allowed here, use Reset and Ask Again, or turn it off and on again there.")
                         .font(.caption).foregroundStyle(Tokens.textMuted)
                 }
             }
@@ -189,8 +213,15 @@ struct PermissionsView: View {
             }
             Text("Used for: \(permission.use)").font(.callout)
             Text("Without it: \(permission.missing)").font(.caption).foregroundStyle(Tokens.textMuted)
+            if status != .allowed, permission.tccService != nil {
+                Text("If Harbor already shows as on in System Settings, macOS is holding on to an entry from an earlier build. Reset and Ask Again removes it so you can allow this one.")
+                    .font(.caption).foregroundStyle(Tokens.textMuted)
+            }
             HStack {
                 if status != .allowed { Button("Grant") { permission.request() } }
+                if status != .allowed, permission.tccService != nil {
+                    Button("Reset and Ask Again") { permission.resetAndAsk() }
+                }
                 Button("Open System Settings") { permission.openSettings() }
             }
         }
