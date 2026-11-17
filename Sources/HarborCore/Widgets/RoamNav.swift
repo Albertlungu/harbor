@@ -1,38 +1,42 @@
 import CoreGraphics
 import Foundation
 
-/// Where a pet can be: standing on a ledge with its feet at `x`, or holding a wall with its middle at `y`.
+/// Where a pet can be: standing on a ledge with its feet at `x`, holding a wall with its middle at `y`, or
+/// hanging upside down from a ceiling with its feet at `x`.
 public enum RoamSpot: Equatable, Sendable {
     case ledge(RoamSurface, x: Double)
     case wall(RoamWall, y: Double)
+    case ceiling(RoamSurface, x: Double)
 
-    /// The feet on a ledge, the middle of the body on a wall.
+    /// The feet on a ledge, the middle of the body on a wall or under a ceiling.
     public func point(half: Double) -> CGPoint {
         switch self {
         case .ledge(let ledge, let x): CGPoint(x: x, y: ledge.y)
         case .wall(let wall, let y): CGPoint(x: wall.x + wall.normal * half, y: y)
+        case .ceiling(let ceiling, let x): CGPoint(x: x, y: ceiling.y - half)
         }
     }
 }
 
 /// One leg of a route.
 public enum RoamMove: Equatable, Sendable {
-    /// Walk along the current ledge to `x`.
+    /// Walk along the current ledge, or crawl along the current ceiling, to `x`.
     case walk(to: Double)
     /// Climb along the current wall until the middle of the body is at `y`.
     case climb(to: Double)
-    /// Step between a ledge and a wall that meet.
+    /// Step between a ledge or ceiling and a wall that meet.
     case transfer(RoamSpot)
-    /// Jump or drop with this launch velocity, expecting to come down on `onto`.
+    /// Jump or drop with this launch velocity, expecting to come down on (or catch) `onto`.
     case leap(vx: Double, vy: Double, onto: RoamSpot)
 }
 
-/// Every way across one screen's ledges and walls, built once per change of surfaces and searched with
-/// Dijkstra. Leaps are found by flying the same physics the pet uses, so a planned jump lands where the
+/// Every way across one screen's ledges, walls and ceilings, built once per change of surfaces and searched
+/// with Dijkstra. Leaps are found by flying the same physics the pet uses, so a planned jump lands where the
 /// plan says unless the windows move mid-flight.
 public struct RoamNav: Sendable {
     public let ledges: [RoamSurface]
     public let walls: [RoamWall]
+    public let ceilings: [RoamSurface]
     /// Half the pet's size: how far its middle sits from a wall, and the margin it keeps from a wall's ends.
     public let half: Double
     private let screenMinX: Double
@@ -42,7 +46,8 @@ public struct RoamNav: Sendable {
     /// Where links meet each segment; routes walk or climb between neighbouring points.
     private var basePoints: [Set<Double>] = []
 
-    /// A point on a segment: ledges first, then walls. `at` is x on a ledge and y on a wall.
+    /// A point on a segment: ledges first, then walls, then ceilings. `at` is x on a ledge or ceiling and
+    /// y on a wall.
     private struct Node: Hashable {
         var segment: Int
         var at: Double
@@ -55,16 +60,26 @@ public struct RoamNav: Sendable {
         var cost: Double
     }
 
+    private enum Segment {
+        case ledge(RoamSurface)
+        case wall(RoamWall)
+        case ceiling(RoamSurface)
+    }
+
     /// Speeds the planner assumes, so routes favour walking over long climbs.
     private static let walkPace = 45.0
     private static let climbPace = 30.0
     /// Fixed overheads that keep routes from hopping when walking is nearly as quick.
     private static let leapPenalty = 0.6
     private static let transferPenalty = 0.3
+    /// Furthest a planned leap travels sideways.
+    private static let leapReach = 560.0
 
-    public init(ledges: [RoamSurface], walls: [RoamWall], half: Double, screenMinX: Double, screenMaxX: Double) {
+    public init(ledges: [RoamSurface], walls: [RoamWall], ceilings: [RoamSurface] = [], half: Double,
+                screenMinX: Double, screenMaxX: Double) {
         self.ledges = ledges
         self.walls = walls.filter { $0.maxY - $0.minY >= half * 2 }
+        self.ceilings = ceilings
         self.half = half
         self.screenMinX = screenMinX
         self.screenMaxX = screenMaxX
@@ -79,21 +94,34 @@ public struct RoamNav: Sendable {
 
     // MARK: Segments
 
-    private var count: Int { ledges.count + walls.count }
+    private var count: Int { ledges.count + walls.count + ceilings.count }
+    private var wallBase: Int { ledges.count }
+    private var ceilingBase: Int { ledges.count + walls.count }
 
-    private func range(_ segment: Int) -> ClosedRange<Double> {
-        if segment < ledges.count {
-            let ledge = ledges[segment]
-            return max(ledge.minX, screenMinX)...max(min(ledge.maxX, screenMaxX), max(ledge.minX, screenMinX))
+    private func segment(_ index: Int) -> Segment {
+        if index < wallBase { return .ledge(ledges[index]) }
+        if index < ceilingBase { return .wall(walls[index - wallBase]) }
+        return .ceiling(ceilings[index - ceilingBase])
+    }
+
+    private func span(_ line: RoamSurface) -> ClosedRange<Double> {
+        max(line.minX, screenMinX)...max(min(line.maxX, screenMaxX), max(line.minX, screenMinX))
+    }
+
+    private func range(_ index: Int) -> ClosedRange<Double> {
+        switch segment(index) {
+        case .ledge(let ledge): span(ledge)
+        case .wall(let wall): (wall.minY + half)...(wall.maxY - half)
+        case .ceiling(let ceiling): span(ceiling)
         }
-        let wall = walls[segment - ledges.count]
-        return (wall.minY + half)...(wall.maxY - half)
     }
 
     private func spot(_ node: Node) -> RoamSpot {
-        node.segment < ledges.count
-            ? .ledge(ledges[node.segment], x: node.at)
-            : .wall(walls[node.segment - ledges.count], y: node.at)
+        switch segment(node.segment) {
+        case .ledge(let ledge): .ledge(ledge, x: node.at)
+        case .wall(let wall): .wall(wall, y: node.at)
+        case .ceiling(let ceiling): .ceiling(ceiling, x: node.at)
+        }
     }
 
     private func node(_ spot: RoamSpot) -> Node? {
@@ -101,7 +129,9 @@ public struct RoamNav: Sendable {
         case .ledge(let ledge, let x):
             ledges.firstIndex(of: ledge).map { Node(segment: $0, at: x) }
         case .wall(let wall, let y):
-            walls.firstIndex(of: wall).map { Node(segment: ledges.count + $0, at: y) }
+            walls.firstIndex(of: wall).map { Node(segment: wallBase + $0, at: y) }
+        case .ceiling(let ceiling, let x):
+            ceilings.firstIndex(of: ceiling).map { Node(segment: ceilingBase + $0, at: x) }
         }
     }
 
@@ -112,17 +142,18 @@ public struct RoamNav: Sendable {
 
     private func buildLinks() -> [Link] {
         var result: [Link] = []
-        let ledgeCount = ledges.count
 
         func add(_ from: Node, _ to: Node, _ move: RoamMove, _ cost: Double) {
             result.append(Link(from: from, to: to, move: move, cost: cost))
         }
 
-        func leap(from: Node, start: CGPoint, vx: Double, vy: Double, aim: RoamWall?, expect: Int? = nil) {
+        func leap(from: Node, start: CGPoint, vx: Double, vy: Double, aim: RoamSpot?, expect: Int? = nil) {
             guard let (flight, time) = simulate(from: start, vx: vx, vy: vy, aim: aim) else { return }
             let target: Node
             if let wall = flight.grabbed, let index = walls.firstIndex(of: wall) {
-                target = Node(segment: ledgeCount + index, at: flight.y)
+                target = Node(segment: wallBase + index, at: flight.y)
+            } else if let ceiling = flight.grabbedCeiling, let index = ceilings.firstIndex(of: ceiling) {
+                target = Node(segment: ceilingBase + index, at: flight.x)
             } else if let ledge = flight.landedOn, let index = ledges.firstIndex(of: ledge) {
                 target = Node(segment: index, at: flight.x)
             } else {
@@ -134,15 +165,28 @@ public struct RoamNav: Sendable {
 
         // Ledges and walls that touch: step on or off, both ways.
         for (li, ledge) in ledges.enumerated() {
-            for (wi, wall) in walls.enumerated() where touches(li, wall) {
-                let span = range(li)
-                let x = min(max(wall.x + wall.normal * half, span.lowerBound), span.upperBound)
-                let wallRange = range(ledgeCount + wi)
+            for (wi, wall) in walls.enumerated() where touches(span(ledge), y: ledge.y, wall) {
+                let x = min(max(wall.x + wall.normal * half, range(li).lowerBound), range(li).upperBound)
+                let wallRange = range(wallBase + wi)
                 let y = min(max(ledge.y + half, wallRange.lowerBound), wallRange.upperBound)
                 let onLedge = Node(segment: li, at: x)
-                let onWall = Node(segment: ledgeCount + wi, at: y)
+                let onWall = Node(segment: wallBase + wi, at: y)
                 add(onLedge, onWall, .transfer(.wall(wall, y: y)), Self.transferPenalty)
                 add(onWall, onLedge, .transfer(.ledge(ledge, x: x)), Self.transferPenalty)
+            }
+        }
+
+        // Ceilings and walls that meet, at a wall's top (an inside corner) or bottom (around the outside).
+        for (ci, ceiling) in ceilings.enumerated() {
+            let ceilingRange = range(ceilingBase + ci)
+            for (wi, wall) in walls.enumerated() where touches(span(ceiling), y: ceiling.y, wall) {
+                let x = min(max(wall.x + wall.normal * half, ceilingRange.lowerBound), ceilingRange.upperBound)
+                let wallRange = range(wallBase + wi)
+                let y = min(max(ceiling.y - half, wallRange.lowerBound), wallRange.upperBound)
+                let under = Node(segment: ceilingBase + ci, at: x)
+                let onWall = Node(segment: wallBase + wi, at: y)
+                add(under, onWall, .transfer(.wall(wall, y: y)), Self.transferPenalty)
+                add(onWall, under, .transfer(.ceiling(ceiling, x: x)), Self.transferPenalty)
             }
         }
 
@@ -169,10 +213,10 @@ public struct RoamNav: Sendable {
                 for (landing, takeoff) in [(target.lowerBound + inset, target.lowerBound - 40),
                                            (target.upperBound - inset, target.upperBound + 40)] {
                     let x0 = min(max(takeoff, span.lowerBound), span.upperBound)
-                    guard abs(landing - x0) <= 420,
+                    guard abs(landing - x0) <= Self.leapReach,
                           let launch = RoamPhysics.launch(dx: landing - x0, dy: rise, clearance: 14) else { continue }
                     leap(from: Node(segment: li, at: x0), start: CGPoint(x: x0, y: from.y), vx: launch.vx, vy: launch.vy,
-                         aim: nil, expect: ti)
+                         aim: .ledge(to, x: landing), expect: ti)
                 }
             }
         }
@@ -180,49 +224,79 @@ public struct RoamNav: Sendable {
         // Jumps from a ledge onto a wall it does not touch.
         for (li, ledge) in ledges.enumerated() {
             let span = range(li)
-            for (wi, wall) in walls.enumerated() where !touches(li, wall) {
-                let wallRange = range(ledgeCount + wi)
+            for (wi, wall) in walls.enumerated() where !touches(span, y: ledge.y, wall) {
+                let wallRange = range(wallBase + wi)
                 let line = wall.x + wall.normal * half
                 let cy = min(max(ledge.y + half + 20, wallRange.lowerBound), wallRange.upperBound)
                 let rise = cy - half - ledge.y
                 guard rise <= RoamPhysics.maxJumpHeight - 12, rise >= -160 else { continue }
-                let x0 = min(max(line + wall.normal * 50, span.lowerBound), span.upperBound)
-                guard (x0 - line) * wall.normal >= 8, abs(x0 - line) <= 260,
+                let x0 = min(max(line + wall.normal * 60, span.lowerBound), span.upperBound)
+                guard (x0 - line) * wall.normal >= 8, abs(x0 - line) <= 360,
                       let launch = RoamPhysics.launch(dx: line - x0, dy: rise, clearance: 10) else { continue }
                 leap(from: Node(segment: li, at: x0), start: CGPoint(x: x0, y: ledge.y), vx: launch.vx, vy: launch.vy,
-                     aim: wall, expect: ledgeCount + wi)
+                     aim: .wall(wall, y: cy), expect: wallBase + wi)
+            }
+        }
+
+        // Straight up from a ledge to catch a ceiling overhead.
+        for (li, ledge) in ledges.enumerated() {
+            let span = range(li)
+            for (ci, ceiling) in ceilings.enumerated() {
+                let rise = ceiling.y - half * 2 - ledge.y
+                guard rise >= 6, rise <= RoamPhysics.maxJumpHeight - 10 else { continue }
+                let over = range(ceilingBase + ci)
+                let low = max(span.lowerBound, over.lowerBound + half)
+                let high = min(span.upperBound, over.upperBound - half)
+                guard high >= low else { continue }
+                let x0 = (low + high) / 2
+                leap(from: Node(segment: li, at: x0), start: CGPoint(x: x0, y: ledge.y), vx: 0,
+                     vy: (2 * RoamPhysics.gravity * (rise + 10)).squareRoot(), aim: .ceiling(ceiling, x: x0),
+                     expect: ceilingBase + ci)
             }
         }
 
         // Pushing off a wall near its bottom or top falls to whatever is below.
         for (wi, wall) in walls.enumerated() {
-            let wallRange = range(ledgeCount + wi)
+            let wallRange = range(wallBase + wi)
             for y in [wallRange.lowerBound, wallRange.upperBound] {
-                leap(from: Node(segment: ledgeCount + wi, at: y),
+                leap(from: Node(segment: wallBase + wi, at: y),
                      start: CGPoint(x: wall.x + wall.normal * half, y: y - half),
                      vx: wall.normal * 90, vy: 120, aim: nil)
+            }
+        }
+
+        // Letting go of a ceiling drops the pet, turned upright, onto whatever is below.
+        for (ci, ceiling) in ceilings.enumerated() {
+            let span = range(ceilingBase + ci)
+            for x in [span.lowerBound + half, (span.lowerBound + span.upperBound) / 2, span.upperBound - half]
+            where span.contains(x) {
+                leap(from: Node(segment: ceilingBase + ci, at: x), start: CGPoint(x: x, y: ceiling.y - half * 2),
+                     vx: 0, vy: 0, aim: nil)
             }
         }
         return result
     }
 
-    /// Whether a ledge meets a wall closely enough to step between them.
-    private func touches(_ ledge: Int, _ wall: RoamWall) -> Bool {
-        let span = range(ledge)
+    /// Whether a horizontal line at `y` across `span` meets a wall closely enough to step between them.
+    private func touches(_ span: ClosedRange<Double>, y: Double, _ wall: RoamWall) -> Bool {
         let gap = max(span.lowerBound - wall.x, wall.x - span.upperBound, 0)
-        return gap <= 1.5 && ledges[ledge].y >= wall.minY - 2 && ledges[ledge].y <= wall.maxY + 2
+        return gap <= 1.5 && y >= wall.minY - 2 && y <= wall.maxY + 2
     }
 
-    /// Flies a launch through the pet's own physics. Planned leaps grab only the wall they aim for.
+    /// Flies a launch through the pet's own physics. Planned leaps catch only the wall or ceiling they aim for.
     private func simulate(from start: CGPoint, vx: Double, vy: Double,
-                          aim: RoamWall?) -> (RoamPhysics.Flight, Double)? {
+                          aim: RoamSpot?) -> (RoamPhysics.Flight, Double)? {
         var flight = RoamPhysics.Flight(x: start.x, y: start.y, vx: vx, vy: vy)
+        let walls = aim?.wall.map { [$0] } ?? []
+        let ceilings = aim?.ceiling.map { [$0] } ?? []
         let dt = 1.0 / 60
         for tick in 1...240 {
-            flight = RoamPhysics.fly(flight, dt: dt, surfaces: ledges, walls: aim.map { [$0] } ?? [], half: half,
+            flight = RoamPhysics.fly(flight, dt: dt, surfaces: ledges, walls: walls, ceilings: ceilings, half: half,
                                      minX: screenMinX, maxX: screenMaxX)
             if flight.hitSide { return nil }
-            if flight.landedOn != nil || flight.grabbed != nil { return (flight, Double(tick) * dt) }
+            if flight.landedOn != nil || flight.grabbed != nil || flight.grabbedCeiling != nil {
+                return (flight, Double(tick) * dt)
+            }
         }
         return nil
     }
@@ -235,13 +309,16 @@ public struct RoamNav: Sendable {
     public func route(from start: RoamSpot, toward target: CGPoint, effort: Double = 10) -> [RoamMove]? {
         guard let origin = node(start) else { return nil }
         var goals: [Node] = []
-        for segment in 0..<count {
-            let span = range(segment)
-            if segment < ledges.count {
-                guard ledges[segment].y <= target.y + 20 else { continue }
-                goals.append(Node(segment: segment, at: min(max(target.x, span.lowerBound), span.upperBound)))
-            } else {
-                goals.append(Node(segment: segment, at: min(max(target.y, span.lowerBound), span.upperBound)))
+        for index in 0..<count {
+            let span = range(index)
+            switch segment(index) {
+            case .ledge(let ledge):
+                guard ledge.y <= target.y + 20 else { continue }
+                goals.append(Node(segment: index, at: min(max(target.x, span.lowerBound), span.upperBound)))
+            case .wall:
+                goals.append(Node(segment: index, at: min(max(target.y, span.lowerBound), span.upperBound)))
+            case .ceiling:
+                goals.append(Node(segment: index, at: min(max(target.x, span.lowerBound), span.upperBound)))
             }
         }
         let search = dijkstra(from: origin, extra: goals)
@@ -288,7 +365,7 @@ public struct RoamNav: Sendable {
             var steps: [(Node, Double, Link?)] = []
             let line = sorted[current.segment]
             if let at = line.firstIndex(of: current.at) {
-                let pace = current.segment < ledges.count ? Self.walkPace : Self.climbPace
+                let pace = current.segment < wallBase ? Self.walkPace : Self.climbPace
                 for neighbor in [at - 1, at + 1] where line.indices.contains(neighbor) {
                     steps.append((Node(segment: current.segment, at: line[neighbor]),
                                   abs(line[neighbor] - current.at) / pace, nil))
@@ -320,7 +397,11 @@ public struct RoamNav: Sendable {
                 result.append(link.move)
                 continue
             }
-            let move: RoamMove = node.segment < ledges.count ? .walk(to: node.at) : .climb(to: node.at)
+            let move: RoamMove
+            switch segment(node.segment) {
+            case .ledge, .ceiling: move = .walk(to: node.at)
+            case .wall: move = .climb(to: node.at)
+            }
             // Consecutive steps along one segment become one walk or climb.
             switch (result.last, move) {
             case (.walk?, .walk), (.climb?, .climb): result[result.count - 1] = move

@@ -123,55 +123,107 @@ import Testing
         let windows = [RoamWindow(frame: CGRect(x: 400, y: 0, width: 300, height: 100)),
                        RoamWindow(frame: CGRect(x: 120, y: 160, width: 200, height: 60))]
         var state = standing(100, 0)
-        let env = environment(windows, mode: .follow, pointer: CGPoint(x: 550, y: 130))
-        let events = run(&state, seconds: 15, env: env)
+        state.timeLeft = 0
+        let env = environment(windows, mode: .curious, attention: CGPoint(x: 550, y: 110))
+        let events = run(&state, seconds: 15, env: env) { $0.y == 100 && $0.activity == .resting }
         #expect(events.contains(.jumped))
         #expect(state.y == 100)
-        #expect(abs(state.x - 550) <= RoamBrain.followDistance + 10)
     }
 
-    @Test func followLeavesItsLedgeToReachThePointer() {
-        let window = RoamWindow(frame: CGRect(x: 400, y: 0, width: 300, height: 400))
-        let env = environment([window], mode: .follow, pointer: CGPoint(x: 600, y: 430))
-        var state = standing(100, 0)
-        var climbedUp = false
-        var facingMatched = true
-        for _ in 0..<(120 * 30) {
-            let before = state
-            _ = RoamBrain.step(&state, dt: 1.0 / 120, env: env, roll: { 0.5 })
-            if state.activity == .climbing, let wall = state.wall, state.y > before.y {
-                climbedUp = true
-                if state.facing != RoamBrain.climbFacing(wall, dy: 1) { facingMatched = false }
+    @Test func aBigLeapReachesALedgeSixBodiesUp() {
+        let window = RoamWindow(frame: CGRect(x: 500, y: 0, width: 300, height: 200))
+        let env = environment([RoamWindow(frame: CGRect(x: 500, y: 200, width: 300, height: 20)), window])
+        let floor = env.surfaces.first { $0.kind == .floor }!
+        let route = env.nav.route(from: .ledge(floor, x: 200), toward: CGPoint(x: 650, y: 220)) ?? []
+        #expect(route.contains { if case .leap(_, _, .ledge(let ledge, _)) = $0 { ledge.y == 220 } else { false } })
+    }
+
+    // MARK: Follow
+
+    @Test func followCrouchesThenSpringsOffIntoTheAir() {
+        let env = environment([], mode: .follow, pointer: CGPoint(x: 600, y: 400))
+        var state = standing(300, 0)
+        state.timeLeft = 0
+        var crouched = 0.0
+        var sprang = false
+        for _ in 0..<(120 * 2) {
+            let events = RoamBrain.step(&state, dt: 1.0 / 120, env: env, roll: { 0.5 })
+            if state.activity == .detaching { crouched += 1.0 / 120 }
+            if state.activity == .floating, !sprang {
+                sprang = true
+                #expect(events.contains(.jumped))
+                #expect(state.vy > 100)
             }
         }
-        #expect(climbedUp)
-        #expect(facingMatched)
-        #expect(state.y == 400)
-        #expect(state.wall == nil)
-        #expect(abs(state.x - 600) <= RoamBrain.followDistance + 10)
+        #expect(abs(crouched - RoamBrain.detachTime) < 0.02)
+        #expect(sprang)
+        #expect(state.y > 100)
     }
 
-    @Test func followDropsDownToAPointerBelow() {
-        let window = RoamWindow(frame: CGRect(x: 400, y: 300, width: 300, height: 100))
-        let env = environment([window], mode: .follow, pointer: CGPoint(x: 150, y: 20))
-        var state = standing(550, 400)
-        run(&state, seconds: 15, env: env)
+    @Test func floatingHasNoGravityAndStaysOnScreen() {
+        var env = environment([], mode: .follow, pointer: CGPoint(x: 990, y: 790))
+        env.screenMinY = 0
+        env.screenMaxY = 800
+        var state = RoamState(x: 500, y: 300)
+        state.activity = .floating
+        state.lastPointer = env.pointer
+        var fastest = 0.0
+        var hardest = 0.0
+        var previous = (vx: 0.0, vy: 0.0)
+        for _ in 0..<(120 * 4) {
+            _ = RoamBrain.step(&state, dt: 1.0 / 120, env: env, roll: { 0.5 })
+            fastest = max(fastest, hypot(state.vx, state.vy))
+            hardest = max(hardest, hypot(state.vx - previous.vx, state.vy - previous.vy) * 120)
+            previous = (state.vx, state.vy)
+            #expect(state.x >= 16 && state.x <= 984)
+            #expect(state.y >= 0 && state.y <= 768)
+        }
+        #expect(state.activity == .floating)
+        #expect(fastest <= RoamBrain.floatSpeed + 0.001)
+        #expect(hardest <= RoamBrain.floatAccel + 1)
+        // Hovering in place with the pointer still, it neither sinks nor drifts.
+        let parked = (state.x, state.y)
+        run(&state, seconds: 1, env: env)
+        #expect(abs(state.x - parked.0) < 1 && abs(state.y - parked.1) < 1)
+    }
+
+    @Test func theSpringArrivesWithoutOvershoot() {
+        let env = environment([], mode: .follow, pointer: CGPoint(x: 700, y: 300))
+        var state = RoamState(x: 200, y: 300)
+        state.activity = .floating
+        state.lastPointer = env.pointer
+        var closest = Double.infinity
+        for _ in 0..<(120 * 6) {
+            _ = RoamBrain.step(&state, dt: 1.0 / 120, env: env, roll: { 0.5 })
+            closest = min(closest, hypot(700 - state.x, 300 - state.y - 16))
+        }
+        #expect(closest > RoamBrain.followDistance - 2)
+        #expect(abs(hypot(700 - state.x, 300 - state.y - 16) - RoamBrain.followDistance) < 1)
+    }
+
+    @Test func leavingFollowFallsAndLands() {
+        var env = environment([], mode: .follow, pointer: CGPoint(x: 600, y: 400))
+        var state = RoamState(x: 500, y: 300)
+        state.activity = .floating
+        state.vx = 120
+        env.mode = .patrol
+        let events = run(&state, seconds: 3, env: env) { $0.activity != .falling && $0.activity != .floating }
+        #expect(events.contains { if case .landed = $0 { true } else { false } })
         #expect(state.y == 0)
-        #expect(abs(state.x - 150) <= RoamBrain.followDistance + 10)
+        #expect(state.x > 500)
     }
 
-    @Test func routesAreReusedUntilThePointerMovesFar() {
+    @Test func aFollowerOnAWallSpringsAwayFromIt() {
         let window = RoamWindow(frame: CGRect(x: 400, y: 0, width: 300, height: 400))
-        var env = environment([window], mode: .follow, pointer: CGPoint(x: 600, y: 430))
-        var state = standing(100, 0)
-        run(&state, seconds: 0.05, env: env)
-        let planned = state.routeTarget
-        env.pointer = CGPoint(x: 610, y: 432)
-        run(&state, seconds: 0.1, env: env)
-        #expect(state.routeTarget == planned)
-        env.pointer = CGPoint(x: 900, y: 600)
-        run(&state, seconds: 0.02, env: env)
-        #expect(state.routeTarget == env.pointer)
+        let env = environment([window], mode: .follow, pointer: CGPoint(x: 200, y: 300))
+        let wall = env.walls.first { $0.x == 400 }!
+        var state = RoamState(x: 400, y: 200)
+        state.wall = wall
+        state.activity = .clinging
+        run(&state, seconds: 1, env: env) { $0.activity == .floating }
+        #expect(state.activity == .floating)
+        #expect(state.vx * wall.normal > 0)
+        #expect(state.wall == nil)
     }
 
     // MARK: Facing
@@ -202,16 +254,15 @@ import Testing
         #expect(mismatches == 0)
     }
 
-    @Test func aStillFollowerFacesThePointer() {
-        var env = environment([], mode: .follow, pointer: CGPoint(x: 600, y: 300))
-        var state = standing(540, 0)
+    @Test func aFloatingFollowerFacesThePointer() {
+        var env = environment([], mode: .follow, pointer: CGPoint(x: 700, y: 300))
+        var state = RoamState(x: 540, y: 300)
+        state.activity = .floating
         state.facing = -1
         run(&state, seconds: 0.5, env: env)
-        #expect(state.x == 540)
         #expect(state.facing == 1)
-        env.pointer = CGPoint(x: 480, y: 300)
-        run(&state, seconds: 0.5, env: env)
-        #expect(state.x == 540)
+        env.pointer = CGPoint(x: 300, y: 300)
+        run(&state, seconds: 1, env: env)
         #expect(state.facing == -1)
     }
 
@@ -252,15 +303,48 @@ import Testing
         #expect(dropped.x == 200)
     }
 
-    @Test func aThrowIntoAWallIsCaught() {
+    @Test func aGentleThrowIntoAWallIsCaught() {
         let window = RoamWindow(frame: CGRect(x: 600, y: 100, width: 300, height: 500))
         let env = environment([window])
         var state = RoamState(x: 300, y: 400)
-        _ = RoamBrain.release(&state, velocity: CGVector(dx: 900, dy: 200), env: env)
+        _ = RoamBrain.release(&state, velocity: CGVector(dx: 480, dy: 200), env: env)
         let events = run(&state, seconds: 3, env: env) { $0.activity == .clinging }
         #expect(events.contains(.grabbedWall))
         #expect(state.wall?.x == 600)
-        #expect(state.y > 116)
+        #expect(state.y >= 116)
+        #expect(!state.tumbling)
+        #expect(state.spin == 0)
+    }
+
+    @Test func aHardThrowTumblesAndBouncesOffTheScreenEdges() {
+        var env = environment([])
+        env.screenMaxY = 800
+        var state = RoamState(x: 700, y: 400)
+        let launched = RoamBrain.release(&state, velocity: CGVector(dx: 3000, dy: 1600), env: env)
+        #expect(launched == [.jumped])
+        #expect(state.tumbling)
+        #expect(hypot(state.vx, state.vy) <= RoamPhysics.maxThrowSpeed + 0.001)
+        var bouncedSide = false
+        var bouncedTop = false
+        var spun = 0.0
+        var last = state.spin
+        let events = run(&state, seconds: 6, env: env) { state in
+            if state.vx < 0 { bouncedSide = true }
+            if state.y + 32 >= 799.9 { bouncedTop = true }
+            spun += abs(RoamPose.delta(from: last, to: state.spin))
+            last = state.spin
+            #expect(state.x <= 1000 && state.x >= 0)
+            #expect(state.y + 32 <= 800.001)
+            return state.activity != .falling
+        }
+        #expect(bouncedSide)
+        #expect(bouncedTop)
+        #expect(spun > 180)
+        #expect(events.contains { if case .landed = $0 { true } else { false } })
+        #expect(state.y == 0)
+        #expect(!state.tumbling)
+        #expect(state.spin == 0)
+        #expect(RoamPose.angle(state) == 0)
     }
 
     // MARK: Modes
