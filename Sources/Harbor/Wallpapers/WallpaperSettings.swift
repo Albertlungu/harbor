@@ -30,7 +30,7 @@ struct WallpaperSettings: View {
                         }
                         if on { store.checkSeason() }
                     }))
-                Text("It's \(season.title.lowercased()). Harbor picks a \(season.title.lowercased()) favourite, or one of the season's top pictures, and checks again once a day at launch and when your Mac wakes.")
+                Text("It's \(season.title.lowercased()). Harbor picks one of your \(season.title.lowercased()) favourites, or one of the season's top pictures, and checks again once a day at launch and when your Mac wakes.")
                     .font(.caption).foregroundStyle(Tokens.textMuted)
                 Picker("Scaling", selection: Binding(get: { store.library.scaling }, set: { v in store.update { $0.scaling = v } })) {
                     ForEach(WallpaperScaling.allCases, id: \.self) { Text($0.title).tag($0) }

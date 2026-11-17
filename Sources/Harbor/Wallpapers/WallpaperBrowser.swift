@@ -27,6 +27,10 @@ final class WallpaperBrowser {
     @ObservationIgnored private var nextPage: WallpaperQuery?
     @ObservationIgnored private var moreTask: Task<Void, Never>?
 
+    init() {
+        if let search = ProcessInfo.processInfo.environment["HARBOR_WALLPAPERS"], search != "1" { text = search }
+    }
+
     var season: WallpaperSeason? { collection.season(on: Date()) }
 
     /// The first page's request, or nil for favourites, which need no network.

@@ -15,7 +15,7 @@ struct WallpaperBrowserView: View {
                     Label("Favourites", systemImage: "heart").tag(WallpaperCollection.favourites)
                 }
                 Section("Seasons") {
-                    Label("This WallpaperSeason (\(WallpaperSeason.of(Date()).title))", systemImage: "calendar")
+                    Label("This Season (\(WallpaperSeason.of(Date()).title))", systemImage: "calendar")
                         .tag(WallpaperCollection.currentSeason)
                     ForEach(WallpaperSeason.allCases, id: \.self) { season in
                         Label(season.title, systemImage: season.symbol).tag(WallpaperCollection.season(season))
@@ -73,6 +73,7 @@ private struct FilterBar: View {
                 }
                 .fixedSize()
                 Toggle("Match my screens", isOn: $browser.matchScreens)
+                    .fixedSize()
                     .help("Only show pictures shaped like your displays")
                 Button { choosingColor = true } label: {
                     HStack(spacing: Tokens.Space.xs) {
