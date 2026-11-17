@@ -52,6 +52,7 @@ struct DockBarLayout: View {
                     .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                         handleBarDrop(providers, location: nil)
                     }
+                    .contextMenu { DockActions(dock: dock, editing: editing) }
             } else if !collapsed {
                 DockBackground(style: dock.style, thickness: CGFloat(dock.style.thickness),
                                opaque: model.store.settings.opaqueBackgrounds, editing: editing)
@@ -60,6 +61,10 @@ struct DockBarLayout: View {
                     .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                         handleBarDrop(providers, location: nil)
                     }
+                    // Padding and the gaps between slots fall through to the background; a clear
+                    // glass fill alone would not take the click.
+                    .contentShape(Rectangle())
+                    .contextMenu { DockActions(dock: dock, editing: editing) }
             }
 
             if !dock.style.effects.isEmpty && dock.layout == .dock {

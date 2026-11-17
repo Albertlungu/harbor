@@ -32,9 +32,7 @@ struct MenuBarMenu: View {
         }
         Divider()
 
-        if !WindowControl.isTrusted {
-            Button("Accessibility Permission Needed…") { WindowControl.requestTrust() }
-        }
+        Button(WindowControl.isTrusted ? "Permissions…" : "Permissions Needed…") { model.windows.showPermissions() }
         Button("About Harbor") {
             NSApp.activate()
             NSApp.orderFrontStandardAboutPanel(nil)
