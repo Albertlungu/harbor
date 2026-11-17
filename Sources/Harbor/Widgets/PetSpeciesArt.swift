@@ -147,11 +147,11 @@ struct PetSpeciesArt {
     func frontEars(outline: Color, line: CGFloat) -> some View {
         if look.species == .dog {
             ForEach([-1.0, 1.0] as [CGFloat], id: \.self) { (side: CGFloat) in
-                Ellipse().fill(LinearGradient(colors: [palette.limb, palette.furBottom], startPoint: .top, endPoint: .bottom))
+                Ellipse().fill(LinearGradient(colors: [palette.limb, palette.accent.opacity(0.75)], startPoint: .top, endPoint: .bottom))
                     .overlay(Ellipse().stroke(outline, lineWidth: line))
-                    .frame(width: unit * 0.17, height: unit * 0.3)
-                    .rotationEffect(.degrees(side * 14 - tail * 0.25), anchor: .top)
-                    .offset(x: side * unit * 0.36 + unit * 0.03 * turn, y: -unit * 0.04)
+                    .frame(width: unit * 0.16, height: unit * 0.32)
+                    .rotationEffect(.degrees(side * 6 - tail * 0.25), anchor: .top)
+                    .offset(x: side * unit * 0.37 + unit * 0.03 * turn, y: unit * 0.03)
             }
         }
     }
@@ -363,7 +363,7 @@ struct PetScarf: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: unit * 0.02).fill(Tokens.Pet.scarf)
-                .frame(width: unit * 0.09, height: unit * 0.15)
+                .frame(width: unit * 0.1, height: unit * 0.17)
                 .overlay(Capsule().fill(Tokens.Pet.scarfStripe).frame(height: unit * 0.018).offset(y: unit * 0.035))
                 .rotationEffect(.degrees(-12), anchor: .top)
                 .offset(x: unit * 0.1, y: unit * 0.07)
@@ -373,7 +373,7 @@ struct PetScarf: View {
                         Capsule().fill(Tokens.Pet.scarfStripe).frame(width: unit * 0.018)
                     }
                 }.padding(.vertical, unit * 0.012))
-                .frame(width: unit * 0.44, height: unit * 0.08)
+                .frame(width: unit * 0.5, height: unit * 0.1)
         }
         .accessibilityHidden(true)
     }
@@ -418,7 +418,7 @@ struct PetHeadAccessory: View {
             let place = species == .bunny ? CGPoint(x: 0.2, y: 0.02) : CGPoint(x: 0.22, y: 0.05)
             bow.offset(x: unit * place.x, y: top + unit * place.y)
         case .hat:
-            hat.rotationEffect(.degrees(-10)).offset(x: -unit * 0.03, y: top - unit * (species == .frog ? 0.0 : 0.035))
+            hat.rotationEffect(.degrees(-10)).offset(x: -unit * 0.03, y: top - unit * (species == .frog ? 0.0 : 0.05))
         case .flowerCrown:
             crown.offset(y: top + unit * (species == .frog ? 0.08 : 0.04))
         case .none, .scarf, .glasses:
@@ -430,12 +430,12 @@ struct PetHeadAccessory: View {
         ZStack {
             ForEach([-1.0, 1.0] as [CGFloat], id: \.self) { (side: CGFloat) in
                 PetEarShape().fill(Tokens.Pet.bow)
-                    .frame(width: unit * 0.11, height: unit * 0.1)
+                    .frame(width: unit * 0.15, height: unit * 0.14)
                     .rotationEffect(.degrees(side * 90))
-                    .offset(x: side * unit * 0.05)
+                    .offset(x: side * unit * 0.07)
             }
             Circle().fill(Tokens.Pet.bow).overlay(Circle().fill(Color.white.opacity(0.25)))
-                .frame(width: unit * 0.05, height: unit * 0.05)
+                .frame(width: unit * 0.07, height: unit * 0.07)
         }
         .rotationEffect(.degrees(18))
         .accessibilityHidden(true)
@@ -443,11 +443,11 @@ struct PetHeadAccessory: View {
 
     private var hat: some View {
         ZStack {
-            Capsule().fill(Tokens.Pet.hat).frame(width: unit * 0.26, height: unit * 0.045).offset(y: unit * 0.05)
-            UnevenRoundedRectangle(topLeadingRadius: unit * 0.03, topTrailingRadius: unit * 0.03)
+            Capsule().fill(Tokens.Pet.hat).frame(width: unit * 0.34, height: unit * 0.055).offset(y: unit * 0.075)
+            UnevenRoundedRectangle(topLeadingRadius: unit * 0.04, topTrailingRadius: unit * 0.04)
                 .fill(Tokens.Pet.hat)
-                .frame(width: unit * 0.16, height: unit * 0.13)
-                .overlay(Rectangle().fill(Tokens.Pet.hatBand).frame(height: unit * 0.03).offset(y: unit * 0.03))
+                .frame(width: unit * 0.21, height: unit * 0.18)
+                .overlay(Rectangle().fill(Tokens.Pet.hatBand).frame(height: unit * 0.04).offset(y: unit * 0.045))
         }
         .accessibilityHidden(true)
     }
@@ -456,7 +456,7 @@ struct PetHeadAccessory: View {
         ZStack {
             ForEach(0..<5, id: \.self) { index in
                 let x = Double(index - 2) / 2
-                let size = unit * (index == 2 ? 0.085 : 0.072)
+                let size = unit * (index == 2 ? 0.11 : 0.095)
                 ZStack {
                     Ellipse().fill(Tokens.Pet.leaf)
                         .frame(width: size * 0.7, height: size * 0.38)
@@ -469,7 +469,7 @@ struct PetHeadAccessory: View {
                     }
                     Circle().fill(Tokens.Pet.beak).frame(width: size * 0.32, height: size * 0.32)
                 }
-                .offset(x: unit * 0.27 * x, y: unit * 0.06 * x * x)
+                .offset(x: unit * 0.29 * x, y: unit * 0.07 * x * x)
             }
         }
         .accessibilityHidden(true)

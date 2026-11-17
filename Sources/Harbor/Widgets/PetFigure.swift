@@ -61,13 +61,13 @@ struct PetFigure: View {
             if !pose.tucked {
                 feet(outline: outline, line: line)
             }
-            if look.appearance.accessory == .scarf {
-                PetScarf(unit: unit).offset(x: unit * 0.02 * pose.turn, y: unit * 0.215)
-            }
             head(width: unit * layout.headWidth, height: unit * layout.headHeight, layout: layout,
                  outline: outline, line: line)
                 .rotationEffect(.degrees(pose.headTilt + face.tilt), anchor: .bottom)
                 .offset(x: unit * 0.02 * pose.turn, y: -unit * 0.04)
+            if look.appearance.accessory == .scarf {
+                PetScarf(unit: unit).offset(x: unit * 0.02 * pose.turn, y: unit * 0.235)
+            }
             arms(outline: outline, line: line)
         }
         .frame(width: unit, height: unit)
