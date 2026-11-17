@@ -46,11 +46,12 @@ public enum EffectMath {
         return fract(t * speed / length + hash(seed)) * length - margin
     }
 
-    /// 0 at night, 1 at midday, with sunrise and sunset easing over about two hours around 6 and 18.
+    /// 0 at night, 1 through the middle of the day, with sunrise and sunset easing over about
+    /// three hours around 6 and 18.
     public static func daylight(hour: Double) -> Double {
         let h = fract(hour / 24) * 24
         let sun = sin((h - 6) / 12 * .pi)
-        return min(max((sun + 0.25) / 0.5, 0), 1)
+        return min(max((sun + 0.3) / 0.75, 0), 1)
     }
 
     /// The local hour as a fraction, e.g. 13.5 for half past one.

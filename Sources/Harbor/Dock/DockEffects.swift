@@ -138,12 +138,20 @@ struct EffectPainter {
             return (ctx, size)
         case .left:
             band.translateBy(x: size.width, y: 0)
-            band.rotate(by: .degrees(90))
+            band.rotate(by: bandAngle)
         case .right:
             band.translateBy(x: 0, y: size.height)
-            band.rotate(by: .degrees(-90))
+            band.rotate(by: bandAngle)
         }
         return (band, CGSize(width: size.height, height: size.width))
+    }
+
+    private var bandAngle: Angle {
+        switch edge {
+        case .left: .degrees(90)
+        case .right: .degrees(-90)
+        case .bottom, .top: .zero
+        }
     }
 
     /// Pointer marks in the band frame, where the right edge runs bottom to top.
@@ -175,10 +183,10 @@ struct EffectPainter {
             var streak = Path()
             streak.move(to: CGPoint(x: x, y: y))
             streak.addLine(to: CGPoint(x: x - length * slant, y: y + length))
-            ctx.stroke(streak, with: .linearGradient(Gradient(colors: [color.opacity(0), color.opacity(0.55)]),
+            ctx.stroke(streak, with: .linearGradient(Gradient(colors: [color.opacity(0), color.opacity(0.75)]),
                                                      startPoint: CGPoint(x: x, y: y),
                                                      endPoint: CGPoint(x: x - length * slant, y: y + length)),
-                       lineWidth: 1)
+                       lineWidth: 1.1)
         }
         // Splashes along the bottom sell the rain as landing on the dock.
         for i in 0..<scaled(3, 7) {
@@ -221,7 +229,7 @@ struct EffectPainter {
         let colors = [rgb(1, 0.78, 0.86), rgb(1, 0.88, 0.92), rgb(0.97, 0.66, 0.79)]
         for i in 0..<scaled(6, 18) {
             let s = Double(i) + 0.2
-            let r = 2.6 + hash(s * 3) * 1.6
+            let r = 3.4 + hash(s * 3) * 2
             let y = EffectMath.travel(seed: s * 7, t: t, speed: 7 + hash(s * 5) * 7, span: size.height, margin: r * 2)
                 + sin(t * 1.7 + s * 3) * 3
             // Petals ride a breeze along the dock so they read as blown rather than dropped.
@@ -279,7 +287,7 @@ struct EffectPainter {
         let colors = [rgb(1, 0.38, 0.55), rgb(1, 0.58, 0.72), rgb(0.94, 0.27, 0.4)]
         for i in 0..<scaled(3, 9) {
             let s = Double(i) + 0.6
-            let r = 3.5 + hash(s * 3) * 2.5
+            let r = 4.5 + hash(s * 3) * 2.5
             let rise = EffectMath.travel(seed: s * 7, t: t, speed: 8 + hash(s * 5) * 6, span: size.height, margin: r * 2)
             let life = min(max(rise / max(size.height, 1), 0), 1)
             let alpha = min(life * 4, 1) * min((1 - life) * 2.5, 1)
@@ -326,7 +334,7 @@ struct EffectPainter {
     }
 
     private func drawSparkles(_ ctx: GraphicsContext, size: CGSize, t: Double) {
-        for i in 0..<scaled(4, 14) {
+        for i in 0..<scaled(6, 16) {
             let s = Double(i) + 0.8
             let period = 1.4 + hash(s) * 1.2
             let shifted = t / period + hash(s * 2)
@@ -335,8 +343,8 @@ struct EffectPainter {
             // Each twinkle lands somewhere new so the sparkles never settle into a pattern.
             let c = CGPoint(x: hash(cycle * 3.7 + s * 19) * size.width,
                             y: size.height * (0.12 + 0.76 * hash(cycle * 5.3 + s * 23)))
-            let grow = pow(sin(phase * .pi), 2)
-            drawGlint(ctx, at: c, radius: (2.5 + hash(s * 3) * 3) * grow, angle: phase * 0.9,
+            let grow = pow(sin(phase * .pi), 1.2)
+            drawGlint(ctx, at: c, radius: (3.5 + hash(s * 3) * 3.5) * grow, angle: phase * 0.9,
                       color: palette[i % palette.count], alpha: grow)
         }
     }
@@ -406,7 +414,7 @@ struct EffectPainter {
     }
 
     private func drawAurora(_ ctx: GraphicsContext, size: CGSize, t: Double) {
-        let colors = [rgb(0.3, 1, 0.62), rgb(0.22, 0.86, 0.92), rgb(0.62, 0.42, 1)]
+        let colors = [rgb(0.3, 1, 0.62), rgb(0.66, 0.45, 1), rgb(0.22, 0.86, 0.92)]
         var layer = ctx
         layer.addFilter(.blur(radius: 3))
         let step = 6.0
@@ -428,13 +436,16 @@ struct EffectPainter {
             path.addLines(bottom.reversed())
             path.closeSubpath()
             let color = colors[j % colors.count]
-            let alpha = 0.32 + 0.18 * intensity
+            let alpha = 0.5 + 0.3 * intensity
             // Curtains glow brightest along their lower hem and fade upward, like the real thing.
             layer.fill(path, with: .linearGradient(Gradient(stops: [.init(color: color.opacity(0), location: 0),
                                                                     .init(color: color.opacity(alpha * 0.6), location: 0.55),
                                                                     .init(color: color.opacity(alpha), location: 0.85),
                                                                     .init(color: color.opacity(0), location: 1)]),
                                                    startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
+            var hem = Path()
+            hem.addLines(bottom.map { CGPoint(x: $0.x, y: $0.y - size.height * 0.06) })
+            layer.stroke(hem, with: .color(color.opacity(alpha * 0.7)), lineWidth: 1.5)
         }
     }
 
@@ -514,10 +525,14 @@ struct EffectPainter {
             let x = EffectMath.travel(seed: s * 7, t: t, speed: 3 + hash(s * 5) * 3, span: size.width, margin: w)
             let y = size.height * (0.2 + 0.35 * hash(s * 9))
             var cloud = Path()
-            cloud.addEllipse(in: CGRect(x: x, y: y, width: w, height: w * 0.32))
-            cloud.addEllipse(in: CGRect(x: x + w * 0.2, y: y - w * 0.16, width: w * 0.42, height: w * 0.36))
-            cloud.addEllipse(in: CGRect(x: x + w * 0.45, y: y - w * 0.1, width: w * 0.36, height: w * 0.3))
-            ctx.fill(cloud, with: .color(.white.opacity(0.7 * day)))
+            cloud.addEllipse(in: CGRect(x: -w / 2, y: 0, width: w, height: w * 0.32))
+            cloud.addEllipse(in: CGRect(x: -w * 0.3, y: -w * 0.16, width: w * 0.42, height: w * 0.36))
+            cloud.addEllipse(in: CGRect(x: -w * 0.05, y: -w * 0.1, width: w * 0.36, height: w * 0.3))
+            // Undo the band turn so clouds stay upright on a vertical dock.
+            var puff = ctx
+            puff.translateBy(x: x + w / 2, y: y)
+            puff.rotate(by: -bandAngle)
+            puff.fill(cloud, with: .color(.white.opacity(0.7 * day)))
         }
     }
 
