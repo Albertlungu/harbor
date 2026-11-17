@@ -137,6 +137,9 @@ extension WeatherWorld {
 
     public var isHolding: Bool { hold != nil }
 
+    /// Something is being held, thrown or rolled, which deserves a brisker frame rate than drifting weather.
+    public var isPlaying: Bool { hold != nil || balls.contains { $0.state != .resting } }
+
     // MARK: Snowballs
 
     mutating func stepBalls(_ dt: Double) {

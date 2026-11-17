@@ -104,7 +104,11 @@ final class WeatherController {
     private var model: AppModel?
     private var screens: [String: WeatherScreen] = [:]
     private var timer: Timer?
-    private var fast = false
+    private var pace: Pace = .still
+    /// When the pointer last moved fast enough to blow the weather about.
+    private var lastGust = ContinuousClock.now - .seconds(10)
+    /// When a left-button drag was last seen anywhere, which is how windows usually get moved.
+    private var lastDrag = ContinuousClock.now - .seconds(10)
     private var lastTick = ContinuousClock.now
     private var locked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -251,21 +255,27 @@ final class WeatherController {
                 screen.panel.orderFrontRegardless()
             }
         }
-        if screens.values.contains(where: { !$0.hidden }) { setClock(fast: true) } else { stopClock() }
+        if screens.values.contains(where: { !$0.hidden }) { setClock(.drift) } else { stopClock() }
     }
 
     // MARK: Clock
 
-    private func setClock(fast wanted: Bool) {
-        guard timer == nil || fast != wanted else { return }
+    /// Frames a second: brisk while someone is playing, slower for weather that only drifts, and a slow beat
+    /// when nothing moves at all. Each frame costs a Metal pass, so the ambient rate matters most.
+    private enum Pace: Double {
+        case play = 30, drift = 20, still = 1
+    }
+
+    private func setClock(_ wanted: Pace) {
+        guard timer == nil || pace != wanted else { return }
         timer?.invalidate()
-        fast = wanted
+        pace = wanted
         lastTick = .now
-        let interval = wanted ? 1.0 / 30 : 1.0
+        let interval = 1 / wanted.rawValue
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        timer.tolerance = wanted ? 0.004 : 0.2
+        timer.tolerance = wanted == .still ? 0.2 : 0.004
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
@@ -288,7 +298,8 @@ final class WeatherController {
             }
         }
         let pets = petBodies(dt: elapsed / speed)
-        var still = true
+        var still = (now - lastDrag) / .seconds(1) > 0.5
+        var playing = (now - lastGust) / .seconds(1) < 1
         for screen in screens.values where !screen.hidden {
             let local = localPets(pets, on: screen)
             var left = elapsed
@@ -298,11 +309,14 @@ final class WeatherController {
                 handle(screen.world.step(dt: dt, pets: local), on: screen)
             }
             screen.render()
-            if !screen.world.isStill || holding == screen.screen.id || !local.isEmpty { still = false }
+            if !screen.world.isStill || !local.isEmpty { still = false }
+            if screen.world.isPlaying || !local.isEmpty { playing = true }
         }
-        let interval = still ? 1.0 : 0.25
+        // Reading the window list costs a few milliseconds, so it is quick only while something is being
+        // dragged; app switches, Space changes and wake ask for a reading straight away.
+        let interval = (now - lastDrag) / .seconds(1) < 0.5 ? 0.25 : 2.0
         if (now - lastSnapshot) / .seconds(1) >= interval { snapshot() }
-        setClock(fast: !still)
+        setClock(still ? .still : playing ? .play : .drift)
     }
 
     // MARK: Pets
@@ -404,8 +418,14 @@ final class WeatherController {
     // MARK: Pointer
 
     private func installMonitors() {
-        let handler: (NSEvent) -> Void = { [weak self] _ in
-            MainActor.assumeIsolated { self?.pointerMoved() }
+        let handler: (NSEvent) -> Void = { [weak self] event in
+            MainActor.assumeIsolated {
+                if event.type == .leftMouseDragged, let self {
+                    self.lastDrag = .now
+                    if self.pace == .still, self.timer != nil { self.setClock(.drift) }
+                }
+                self?.pointerMoved()
+            }
         }
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) { monitors.append(global) }
@@ -444,7 +464,10 @@ final class WeatherController {
                 let hit = screen.world.hitTest(x: p.x, y: p.y)
                 if screen.panel.ignoresMouseEvents == hit { screen.panel.ignoresMouseEvents = !hit }
             }
-            if !fast, hypot(pointerVelocity.dx, pointerVelocity.dy) > 300 { setClock(fast: true) }
+            if hypot(pointerVelocity.dx, pointerVelocity.dy) > 300 {
+                lastGust = now
+                if pace != .play { setClock(.play) }
+            }
         }
     }
 
@@ -453,7 +476,7 @@ final class WeatherController {
         switch event.type {
         case .leftMouseDown:
             if screen.world.pointerDown(x: p.x, y: p.y), screen.world.isHolding { holding = screen.screen.id }
-            setClock(fast: true)
+            setClock(.play)
         case .leftMouseDragged:
             pointerMoved()
             screen.world.pointerDragged(x: p.x, y: p.y)

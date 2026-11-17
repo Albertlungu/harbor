@@ -81,7 +81,7 @@ public struct SeasonTuning: Sendable {
 
     public static func of(_ season: Season) -> SeasonTuning {
         switch season {
-        case .winter: SeasonTuning(rate: 90, slope: 0.6, edgeHold: 5, cap: 40, deposit: 1.1, melt: 0.1, calmMelt: 0.8)
+        case .winter: SeasonTuning(rate: 55, slope: 0.6, edgeHold: 5, cap: 40, deposit: 1.6, melt: 0.1, calmMelt: 0.8)
         case .autumn: SeasonTuning(rate: 10, slope: 0.9, edgeHold: 8, cap: 24, deposit: 2.2, melt: 0.15, calmMelt: 0.5)
         case .spring: SeasonTuning(rate: 12, slope: 0.5, edgeHold: 3, cap: 6, deposit: 0.6, melt: 0.3, calmMelt: 0.8)
         case .summer: SeasonTuning(rate: 4, slope: 0.5, edgeHold: 3, cap: 0, deposit: 0, melt: 1, calmMelt: 1)
