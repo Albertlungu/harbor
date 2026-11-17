@@ -13,7 +13,7 @@ Harbor is a working name; the final brand comes later.
 - Auto-hide, fullscreen hiding, fade under windows, keep windows off docks, a hotkey per dock.
 - 24 widgets: clock, link, Finder, IP address, spacer, divider, label, folder and app stacks, two shelves, Trash,
   Live Dock, running apps, desktop apps and indicator, CPU, memory, GPU, battery, Bluetooth battery, counter,
-  timer, metronome and a small seal pup.
+  timer, metronome and a dock pet you can dress up as a seal, cat, dog, fox, bunny, penguin, frog, owl or hamster.
 - Window previews, notification badges, click and scroll gestures, Edit Mode on the dock itself.
 - Backups with daily snapshots, settings export, icon library.
 - Automation: `harbor://toggle?dock=Work` style URLs for Shortcuts, and `harbor-mcp` so AI assistants can

@@ -102,6 +102,9 @@ struct PetEye: View {
     let gaze: CGSize
     let lid: Double
     let twinkle: Double
+    var eyeStyle: PetEyeStyle = .round
+    var ink: Color = Tokens.Pet.eye
+    var rim = false
 
     var body: some View {
         let width = unit * 0.17
@@ -109,21 +112,23 @@ struct PetEye: View {
         let frameWidth = width * 1.15
         let frameHeight = height * 1.15
         let stroke = StrokeStyle(lineWidth: max(unit * 0.03, 1.2), lineCap: .round)
+        // A sleepy-eyed pet keeps its lids half down at rest; surprise still opens them most of the way.
+        let restingLid = eyeStyle == .sleepy ? (style == .wide ? 0.15 : 0.42) : 0
         ZStack {
             if style == .arcUp || style == .arcDown {
                 PetArc(up: style == .arcUp)
-                    .stroke(Tokens.Pet.eye, style: stroke)
+                    .stroke(ink, style: stroke)
                     .frame(width: width * 0.9, height: height * 0.3)
             } else if lid > 0.85 {
                 // A shut lid is a short bowl so a blink still reads as an eye closing rather than vanishing.
                 PetArc(up: false)
-                    .stroke(Tokens.Pet.eye, style: stroke)
+                    .stroke(ink, style: stroke)
                     .frame(width: width * 0.9, height: height * 0.14)
             } else {
                 openEye(width: width, height: height)
                     .frame(width: frameWidth, height: frameHeight)
                     .mask(alignment: .bottom) {
-                        Rectangle().frame(height: frameHeight * (1 - max(lid, style == .halfLid ? 0.45 : 0)))
+                        Rectangle().frame(height: frameHeight * (1 - max(lid, style == .halfLid ? 0.45 : 0, restingLid)))
                     }
                     .offset(x: gaze.width * unit * 0.03, y: gaze.height * unit * 0.035)
             }
@@ -132,8 +137,13 @@ struct PetEye: View {
     }
 
     private func openEye(width: CGFloat, height: CGFloat) -> some View {
-        let grow: CGFloat = (style == .wide || style == .sparkle) ? 1.15 : 1
+        let sparkly = style == .sparkle || (eyeStyle == .sparkly && style == .open)
+        let grow: CGFloat = (style == .wide || sparkly) ? 1.15 : 1
         return ZStack {
+            if rim {
+                Ellipse().stroke(Color.white.opacity(0.8), lineWidth: unit * 0.022)
+                    .frame(width: width * grow, height: height * grow)
+            }
             Ellipse().fill(Tokens.Pet.eye)
                 .frame(width: width * grow, height: height * grow)
             // Two highlights at different sizes are what makes the eye look glossy and alive.
@@ -143,7 +153,7 @@ struct PetEye: View {
             Circle().fill(Color.white.opacity(0.9))
                 .frame(width: width * 0.18, height: width * 0.18)
                 .offset(x: width * 0.2, y: height * 0.22)
-            if style == .sparkle {
+            if sparkly {
                 Image(systemName: "sparkle")
                     .font(.system(size: unit * 0.07))
                     .foregroundStyle(Color.white)

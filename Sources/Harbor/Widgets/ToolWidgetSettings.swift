@@ -48,6 +48,7 @@ struct ToolWidgetSettings: View {
         }
         .pickerStyle(.segmented)
         Toggle("Track happiness, hunger and energy", isOn: fields.bool("needs", false))
+        PetAppearanceSettings(fields: fields)
         PetRoamSettings(fields: fields)
     }
 }
