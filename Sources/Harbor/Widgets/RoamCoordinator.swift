@@ -900,10 +900,12 @@ final class RoamCoordinator {
         let own = ProcessInfo.processInfo.processIdentifier
         let frontPID = front?.processIdentifier == own ? nil : front?.processIdentifier
         let frames = NSScreen.screens.map(\.frame)
+        // Harbor's own Manager and Settings windows hide edges behind them like any other window; its docks,
+        // pets and overlays sit above the normal window layer, so the reading never sees them.
         let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-            .map(\.processIdentifier))
+            .map(\.processIdentifier)).union([own])
         let result = await Task.detached(priority: .utility) {
-            RoamSnapshot.take(frontPID: frontPID, ownPID: own, regularPIDs: regular, screens: frames)
+            RoamSnapshot.take(frontPID: frontPID, ownPID: -1, regularPIDs: regular, screens: frames)
         }.value
         if result.windows != windows { vision.markDirty() }
         windows = result.windows
