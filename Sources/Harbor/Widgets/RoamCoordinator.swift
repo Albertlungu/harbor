@@ -92,6 +92,7 @@ final class RoamCoordinator {
     func start(model: AppModel) {
         guard self.model == nil else { return }
         self.model = model
+        WeatherController.shared.petSource = self
         let nc = NotificationCenter.default
         let ws = NSWorkspace.shared.notificationCenter
         let distributed = DistributedNotificationCenter.default()
@@ -575,6 +576,26 @@ final class RoamCoordinator {
         if !pets.isEmpty { startSnapshotLoopIfNeeded() }
         gate?.resume()
         gate = nil
+    }
+}
+
+// MARK: Weather
+
+/// The desktop weather sees where pets stand and may ask one for a hop toward something to play with.
+extension RoamCoordinator: WeatherPetSource {
+    var weatherPets: [(id: String, feet: CGPoint, unit: Double)] {
+        pets.values.filter { !$0.hidden && $0.state.activity != .carried }
+            .map { ("\($0.key.dock)/\($0.key.item)", $0.feet, $0.unit) }
+    }
+
+    func weatherNudge(_ id: String, impulse: CGVector) {
+        guard !quiet, let pet = pets.values.first(where: { "\($0.key.dock)/\($0.key.item)" == id }),
+              [.walking, .resting, .sitting].contains(pet.state.activity) else { return }
+        if impulse.dx != 0 { pet.state.facing = impulse.dx > 0 ? 1 : -1 }
+        // A hop is a fall that starts upward; the brain lands it on whatever ledge is below.
+        pet.state.activity = .falling
+        pet.state.fallSpeed = -min(impulse.dy, 360)
+        present(pet)
     }
 }
 

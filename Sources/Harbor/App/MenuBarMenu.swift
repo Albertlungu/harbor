@@ -21,6 +21,7 @@ struct MenuBarMenu: View {
             set: { v in model.store.updateSettings { $0.previews.enabled = v } }))
         MediaSubmenu()
         PetSubmenu()
+        WeatherSubmenu()
         Divider()
 
         if model.store.docks.isEmpty {
