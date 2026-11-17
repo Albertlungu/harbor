@@ -67,7 +67,9 @@ struct MonitorWidget: View {
                 Text("\(Int(value.rounded()))")
                     .font(.system(size: fontSize, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .contentTransition(.numericText())
+                    // A cross-fade, not .numericText(): its rolling digits are drawn at a new scale every
+                    // frame, and Core Graphics keeps every one of those glyph bitmaps, about 40 MB a minute.
+                    .contentTransition(.opacity)
             } else {
                 Text(reading.unavailableText)
                     .font(.system(size: fontSize * 0.6, weight: .semibold, design: .rounded))
