@@ -44,31 +44,149 @@ final class WeatherView: NSView {
     override func mouseUp(with event: NSEvent) { onMouse?(event) }
 }
 
+/// A thread with its own run loop, where the display links fire and the weather is stepped and drawn, so a
+/// busy main thread can't make the weather stutter and the weather can't hold up the main thread.
+private final class WeatherThread: Thread, @unchecked Sendable {
+    private var loop: CFRunLoop?
+    private let ready = DispatchSemaphore(value: 0)
+
+    override init() {
+        super.init()
+        name = "Harbor weather"
+        qualityOfService = .userInteractive
+    }
+
+    func launch() {
+        start()
+        ready.wait()
+    }
+
+    override func main() {
+        loop = CFRunLoopGetCurrent()
+        // A port keeps the run loop waiting while no display link is attached.
+        RunLoop.current.add(NSMachPort(), forMode: .default)
+        ready.signal()
+        while true { RunLoop.current.run(mode: .default, before: .distantFuture) }
+    }
+
+    func perform(_ block: @escaping @Sendable () -> Void) {
+        guard let loop else { return }
+        CFRunLoopPerformBlock(loop, CFRunLoopMode.defaultMode.rawValue, block)
+        CFRunLoopWakeUp(loop)
+    }
+}
+
+/// What one screen's frame tells the main thread.
+private struct WeatherReport: Sendable {
+    var events: [WeatherEvent]
+    var still: Bool
+    var playing: Bool
+}
+
+/// The part of one screen's weather that the weather thread steps and draws. `lock` guards the world and
+/// whatever the main thread hands over; the rest belongs to the weather thread.
+private final class WeatherStage: NSObject, @unchecked Sendable {
+    let renderer = WeatherRenderer()
+    /// Set on the main thread before the link is attached, then used only on the weather thread.
+    var link: CADisplayLink?
+    private let report: @Sendable (WeatherReport) -> Void
+    private let speed: Double
+
+    private let lock = NSLock()
+    private var world: WeatherWorld
+    private var pets: [WeatherPet] = []
+    private var hidden = true
+
+    // Weather thread only.
+    private var lastFrame: CFTimeInterval = 0
+    private var sprites: [WeatherSprite] = []
+
+    init(world: WeatherWorld, speed: Double, report: @escaping @Sendable (WeatherReport) -> Void) {
+        self.world = world
+        self.speed = speed
+        self.report = report
+    }
+
+    func with<T>(_ body: (inout WeatherWorld) -> T) -> T { lock.withLock { body(&world) } }
+
+    func setPets(_ next: [WeatherPet]) { lock.withLock { pets = next } }
+
+    func setHidden(_ next: Bool) { lock.withLock { hidden = next } }
+
+    /// Weather thread: how often the display link fires, or not at all while still or hidden.
+    func pace(_ rate: Double?) {
+        guard let link else { return }
+        if let rate {
+            let r = Float(rate)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: r, maximum: r, preferred: r)
+        }
+        let hidden = lock.withLock { self.hidden }
+        link.isPaused = rate == nil || hidden
+        // Shown again later, the world picks up where it was rather than jumping ahead.
+        if hidden { lastFrame = 0 }
+    }
+
+    @objc func tick(_ link: CADisplayLink) { frame(at: link.targetTimestamp) }
+
+    /// Weather thread: steps the world to `now` and draws it. Display-link frames step by the time between
+    /// vsyncs rather than by when the callback happened to run, so motion stays even.
+    func frame(at now: CFTimeInterval) {
+        let elapsed = lastFrame == 0 ? 1.0 / 30 : min(max(now - lastFrame, 0), 1.5)
+        lastFrame = now
+        sprites.removeAll(keepingCapacity: true)
+        var events: [WeatherEvent] = []
+        var still = true, playing = false
+        let shown: Bool = lock.withLock {
+            guard !hidden else { return false }
+            var left = elapsed * speed
+            while left > 0 {
+                let dt = min(left, 1.0 / 30)
+                left -= dt
+                events += world.step(dt: dt, pets: pets)
+            }
+            world.pileSprites(into: &sprites)
+            world.liveSprites(into: &sprites)
+            still = world.isStill && pets.isEmpty
+            playing = world.isPlaying
+            return true
+        }
+        guard shown else {
+            lastFrame = 0
+            return
+        }
+        renderer.draw(sprites)
+        report(WeatherReport(events: events, still: still, playing: playing))
+    }
+}
+
 /// The weather on one connected screen.
 @MainActor
 private final class WeatherScreen {
     var screen: ConnectedScreen
     let panel: WeatherPanel
     let view = WeatherView()
-    let renderer: WeatherRenderer
-    var world: WeatherWorld
+    let stage: WeatherStage
     var hidden = true
-    var sprites: [WeatherSprite] = []
+    var still = true
+    var playing = false
 
-    init?(screen: ConnectedScreen, settings: WeatherSettings, season: Season, evening: Bool) {
-        guard let renderer = WeatherRenderer() else { return nil }
+    init?(screen: ConnectedScreen, settings: WeatherSettings, season: Season, evening: Bool, speed: Double,
+          report: @escaping @Sendable (WeatherReport) -> Void) {
+        guard WeatherRenderer.device != nil else { return nil }
         self.screen = screen
-        self.renderer = renderer
         let frame = screen.geometry.frame
         panel = WeatherPanel(frame: frame)
-        world = WeatherWorld(width: frame.width, height: frame.height, season: season, intensity: settings.intensity,
-                             accumulation: settings.accumulation, interactions: settings.interactions, evening: evening,
-                             seed: UInt64.random(in: 1...UInt64.max))
+        let world = WeatherWorld(width: frame.width, height: frame.height, season: season,
+                                 intensity: settings.intensity, accumulation: settings.accumulation,
+                                 interactions: settings.interactions, evening: evening,
+                                 seed: UInt64.random(in: 1...UInt64.max))
+        stage = WeatherStage(world: world, speed: speed, report: report)
+        view.layer = stage.renderer.layer
         view.wantsLayer = true
-        view.layer = renderer.layer
         view.frame = CGRect(origin: .zero, size: frame.size)
         panel.contentView = view
         resize()
+        stage.link = view.displayLink(target: stage, selector: #selector(WeatherStage.tick(_:)))
     }
 
     var origin: CGPoint { screen.geometry.frame.origin }
@@ -78,22 +196,17 @@ private final class WeatherScreen {
     func resize() {
         let frame = screen.geometry.frame
         if panel.frame != frame { panel.setFrame(frame, display: false) }
-        world.width = frame.width
-        world.height = frame.height
+        stage.with {
+            $0.width = frame.width
+            $0.height = frame.height
+        }
         let scale = NSScreen.screens.first { $0.frame == frame }?.backingScaleFactor ?? 2
-        renderer.resize(points: frame.size, scale: scale)
-    }
-
-    func render() {
-        sprites.removeAll(keepingCapacity: true)
-        world.pileSprites(into: &sprites)
-        world.liveSprites(into: &sprites)
-        renderer.draw(sprites, viewport: screen.geometry.frame.size)
+        stage.renderer.resize(points: frame.size, scale: scale)
     }
 }
 
-/// Runs Settings › Seasons: one overlay per screen, one clock for all of them, and the window readings that
-/// tell the weather where the ledges are.
+/// Runs Settings › Seasons: one overlay per screen, each paced by its display on the weather thread, and the
+/// window readings that tell the weather where the ledges are.
 @MainActor
 final class WeatherController {
     static let shared = WeatherController()
@@ -103,13 +216,19 @@ final class WeatherController {
 
     private var model: AppModel?
     private var screens: [String: WeatherScreen] = [:]
-    private var timer: Timer?
-    private var pace: Pace = .still
+    /// Started with the first overlay, so a Harbor with the weather off never runs it.
+    private lazy var thread: WeatherThread = {
+        let thread = WeatherThread()
+        thread.launch()
+        return thread
+    }()
+    private var pace: Pace?
+    /// The slow beat that stands in for the display links while nothing moves.
+    private var beat: Timer?
     /// When the pointer last moved fast enough to blow the weather about.
     private var lastGust = ContinuousClock.now - .seconds(10)
     /// When a left-button drag was last seen anywhere, which is how windows usually get moved.
     private var lastDrag = ContinuousClock.now - .seconds(10)
-    private var lastTick = ContinuousClock.now
     private var locked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     private var fullscreen: [CGRect] = []
@@ -123,6 +242,7 @@ final class WeatherController {
     private var pointerTime = ContinuousClock.now
     private var holding: String?
     private var petFeet: [String: CGPoint] = [:]
+    private var lastPets = ContinuousClock.now
     private var lastSeasonCheck = Date.distantPast
 
     private let environment = ProcessInfo.processInfo.environment
@@ -186,12 +306,15 @@ final class WeatherController {
     }
 
     private func reset(_ screen: WeatherScreen) {
-        screen.world = WeatherWorld(width: screen.world.width, height: screen.world.height, season: screen.world.season,
-                                    intensity: settings.intensity, accumulation: settings.accumulation,
-                                    interactions: settings.interactions, evening: screen.world.evening,
-                                    seed: UInt64.random(in: 1...UInt64.max))
-        // Drawn now rather than on the next tick, which can be a second away while the weather is still.
-        screen.render()
+        let settings = settings
+        screen.stage.with {
+            $0 = WeatherWorld(width: $0.width, height: $0.height, season: $0.season, intensity: settings.intensity,
+                              accumulation: settings.accumulation, interactions: settings.interactions,
+                              evening: $0.evening, seed: UInt64.random(in: 1...UInt64.max))
+        }
+        // Drawn now rather than on the next beat, which can be a second away while the weather is still.
+        let stage = screen.stage
+        thread.perform { stage.frame(at: CACurrentMediaTime()) }
     }
 
     // MARK: Screens
@@ -217,22 +340,29 @@ final class WeatherController {
                 existing.screen = screen
                 existing.resize()
             } else if let created = WeatherScreen(screen: screen, settings: settings, season: now.season,
-                                                  evening: now.evening) {
+                                                  evening: now.evening, speed: speed, report: report(screen.id)) {
                 created.view.onMouse = { [weak self, weak created] event in
                     guard let created else { return }
                     self?.mouse(event, on: created)
                 }
                 screens[screen.id] = created
+                let stage = created.stage
+                thread.perform {
+                    stage.link?.add(to: .current, forMode: .default)
+                    stage.pace(nil)
+                }
             }
         }
         for key in screens.keys where !connected.contains(where: { $0.id == key }) { remove(key) }
         let sharing: NSWindow.SharingType = model?.store.settings.hideFromScreenSharing == true ? .none : .readOnly
         for screen in screens.values {
-            screen.world.season = now.season
-            screen.world.evening = now.evening
-            screen.world.intensity = settings.intensity
-            screen.world.accumulation = settings.accumulation
-            screen.world.interactions = settings.interactions
+            screen.stage.with {
+                $0.season = now.season
+                $0.evening = now.evening
+                $0.intensity = settings.intensity
+                $0.accumulation = settings.accumulation
+                $0.interactions = settings.interactions
+            }
             if screen.panel.sharingType != sharing { screen.panel.sharingType = sharing }
         }
         if monitors.isEmpty { installMonitors() }
@@ -242,87 +372,128 @@ final class WeatherController {
 
     private func remove(_ key: String) {
         guard let screen = screens.removeValue(forKey: key) else { return }
+        screen.stage.setHidden(true)
+        let stage = screen.stage
+        thread.perform {
+            stage.link?.invalidate()
+            stage.link = nil
+        }
         screen.panel.orderOut(nil)
         screen.panel.contentView = nil
     }
 
     private func updateVisibility() {
+        var appeared = false
         for screen in screens.values {
             let frame = screen.screen.geometry.frame.insetBy(dx: 1, dy: 1)
             let hide = locked || lowPower || fullscreen.contains { $0.intersects(frame) }
             guard hide != screen.hidden else { continue }
             screen.hidden = hide
+            screen.stage.setHidden(hide)
             if hide {
+                let stage = screen.stage
+                thread.perform { stage.pace(nil) }
                 screen.panel.orderOut(nil)
                 // A fullscreen app starts clean: nothing waits to pile back in when the desktop returns.
                 if fullscreen.contains(where: { $0.intersects(frame) }) { reset(screen) }
             } else {
                 screen.panel.orderFrontRegardless()
+                appeared = true
             }
         }
-        if screens.values.contains(where: { !$0.hidden }) { setClock(.drift) } else { stopClock() }
+        if screens.values.contains(where: { !$0.hidden }) {
+            // A screen just shown needs its link running even if the pace hasn't changed.
+            if appeared { pace = nil }
+            if pace == nil { setClock(.drift) }
+        } else {
+            stopClock()
+        }
     }
 
     // MARK: Clock
 
-    /// Frames a second: brisk while someone is playing, slower for weather that only drifts, and a slow beat
-    /// when nothing moves at all. Each frame costs a Metal pass, so the ambient rate matters most.
+    /// Frames a second: brisk while a ball or bubble is in hand or in flight, steady for weather that drifts,
+    /// and a slow beat when nothing moves at all. Every frame makes the window server recomposite the screen,
+    /// so the brisk rate is kept to direct play; the rates divide common refresh rates so frames land evenly.
     private enum Pace: Double {
-        case play = 30, drift = 20, still = 1
+        case play = 60, drift = 30, still = 1
     }
 
     private func setClock(_ wanted: Pace) {
-        guard timer == nil || pace != wanted else { return }
-        timer?.invalidate()
+        guard pace != wanted else { return }
         pace = wanted
-        lastTick = .now
-        let interval = 1 / wanted.rawValue
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        let rate: Double? = wanted == .still ? nil : wanted.rawValue
+        for stage in screens.values.map(\.stage) { thread.perform { stage.pace(rate) } }
+        beat?.invalidate()
+        beat = nil
+        guard wanted == .still else { return }
+        let beat = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.still() }
         }
-        timer.tolerance = wanted == .still ? 0.2 : 0.004
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        beat.tolerance = 0.2
+        RunLoop.main.add(beat, forMode: .common)
+        self.beat = beat
     }
 
     private func stopClock() {
-        timer?.invalidate()
-        timer = nil
+        pace = nil
+        beat?.invalidate()
+        beat = nil
+        for stage in screens.values.map(\.stage) { thread.perform { stage.pace(nil) } }
     }
 
-    private func tick() {
+    /// One frame on every shown screen while the display links rest.
+    private func still() {
+        for screen in screens.values where !screen.hidden {
+            let stage = screen.stage
+            thread.perform { stage.frame(at: CACurrentMediaTime()) }
+        }
+    }
+
+    /// Hands a screen's frame reports to the main thread.
+    private func report(_ id: String) -> @Sendable (WeatherReport) -> Void {
+        { report in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { WeatherController.shared.frameDone(report, on: id) }
+            }
+        }
+    }
+
+    /// After each screen's frame: plays its events, hands the pets over and settles the pace and readings.
+    private func frameDone(_ report: WeatherReport, on id: String) {
+        guard let screen = screens[id] else { return }
+        handle(report.events)
+        screen.still = report.still
+        screen.playing = report.playing
         let now = ContinuousClock.now
-        let elapsed = min((now - lastTick) / .seconds(1), 1.5) * speed
-        lastTick = now
         if Date.now.timeIntervalSince(lastSeasonCheck) > 60 {
             lastSeasonCheck = .now
             let current = currentSeason()
             for screen in screens.values {
-                screen.world.season = current.season
-                screen.world.evening = current.evening
+                screen.stage.with {
+                    $0.season = current.season
+                    $0.evening = current.evening
+                }
             }
         }
-        let pets = petBodies(dt: elapsed / speed)
-        var still = (now - lastDrag) / .seconds(1) > 0.5
-        var playing = (now - lastGust) / .seconds(1) < 1
-        for screen in screens.values where !screen.hidden {
-            let local = localPets(pets, on: screen)
-            var left = elapsed
-            while left > 0 {
-                let dt = min(left, 1.0 / 30)
-                left -= dt
-                handle(screen.world.step(dt: dt, pets: local), on: screen)
-            }
-            screen.render()
-            if !screen.world.isStill || !local.isEmpty { still = false }
-            if screen.world.isPlaying || !local.isEmpty { playing = true }
+        // Several screens report each frame; the pets only need handing over once. A screen with pets on it
+        // reports itself busy, which keeps the pace up while they walk.
+        let sincePets = (now - lastPets) / .seconds(1)
+        if sincePets > 0.01 {
+            lastPets = now
+            let pets = petBodies(dt: sincePets)
+            for screen in screens.values { screen.stage.setPets(localPets(pets, on: screen)) }
         }
+        let shown = screens.values.filter { !$0.hidden }
+        let still = (now - lastDrag) / .seconds(1) > 0.5 && (now - lastGust) / .seconds(1) > 1
+            && shown.allSatisfy(\.still)
+        let playing = holding != nil || shown.contains(where: \.playing)
         // Reading the window list costs a few milliseconds, so it is quick only while something is being
         // dragged; app switches, Space changes and wake ask for a reading straight away.
         let interval = (now - lastDrag) / .seconds(1) < 0.5 ? 0.25 : 2.0
         // A dock sliding away must drop its ledge at once, not at the next slow reading.
         if (now - lastSnapshot) / .seconds(1) >= interval || visibleBars().map(\.bar) != lastBars { snapshot() }
-        setClock(still ? .still : playing ? .play : .drift)
+        if !shown.isEmpty { setClock(still ? .still : playing ? .play : .drift) }
     }
 
     // MARK: Pets
@@ -356,7 +527,7 @@ final class WeatherController {
         }
     }
 
-    private func handle(_ events: [WeatherEvent], on screen: WeatherScreen) {
+    private func handle(_ events: [WeatherEvent]) {
         for event in events {
             switch event {
             case .nudge(let pet, let dx, let dy):
@@ -400,14 +571,15 @@ final class WeatherController {
         let frames = NSScreen.screens.map(\.frame)
         let bars = visibleBars()
         lastBars = bars.map(\.bar)
-        // Harbor runs without a Dock icon, so its own pid is added for snow to settle on its windows.
-        let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-            .map(\.processIdentifier)).union([own])
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
+                // Asking every app for its activation policy takes tens of milliseconds, too long for the main
+                // thread. Harbor runs without a Dock icon, so its own pid is added for snow to settle on its windows.
+                let regular = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+                    .map(\.processIdentifier)).union([own])
                 // No pid is excluded: snow settles on Harbor's own Settings and Manager windows too. The
                 // overlays, docks and pets are on other window levels, which the reading skips anyway.
-                RoamSnapshot.take(frontPID: frontPID, ownPID: -1, regularPIDs: regular, screens: frames)
+                return RoamSnapshot.take(frontPID: frontPID, ownPID: -1, regularPIDs: regular, screens: frames)
             }.value
             self?.apply(result, bars: bars)
         }
@@ -420,18 +592,20 @@ final class WeatherController {
         fullscreen = result.fullscreen
         // The focused window gets no title-bar exclusion here: snow may sit on any window's top edge.
         let windows = result.windows.map { RoamWindow(frame: $0.frame) }
+        let frames = windows.map(\.frame)
         for screen in screens.values {
             let frame = screen.screen.geometry.frame
             let menuBar = max(0, frame.maxY - screen.screen.geometry.visibleFrame.maxY)
             let docks = bars.filter { $0.screen == screen.screen.id && !$0.bar.isEmpty }.map(\.bar)
-            let surfaces = RoamSurfaces.build(screen: frame, menuBarHeight: menuBar,
-                                              windows: windows.filter { $0.frame.intersects(frame) }, docks: docks,
-                                              walkOnWindows: true)
+            let built = RoamSurfaces.build(screen: frame, menuBarHeight: menuBar,
+                                           windows: windows.filter { $0.frame.intersects(frame) }, docks: docks,
+                                           walkOnWindows: true)
+            let surfaces = WeatherWorld.roundingCorners(built, windows: frames)
             let origin = frame.origin
             let local = surfaces.map {
                 RoamSurface(kind: $0.kind, y: $0.y - origin.y, minX: $0.minX - origin.x, maxX: $0.maxX - origin.x)
             }
-            screen.world.setSurfaces(local, quietly: quietly)
+            screen.stage.with { $0.setSurfaces(local, quietly: quietly) }
         }
         updateVisibility()
     }
@@ -443,7 +617,7 @@ final class WeatherController {
             MainActor.assumeIsolated {
                 if event.type == .leftMouseDragged, let self {
                     self.lastDrag = .now
-                    if self.pace == .still, self.timer != nil { self.setClock(.drift) }
+                    if self.pace == .still { self.setClock(.drift) }
                 }
                 self?.pointerMoved()
             }
@@ -475,19 +649,22 @@ final class WeatherController {
         }
         for screen in screens.values where !screen.hidden {
             guard screen.screen.geometry.frame.contains(location) else {
-                screen.world.pointerLeft()
+                screen.stage.with { $0.pointerLeft() }
                 if holding != screen.screen.id, !screen.panel.ignoresMouseEvents { screen.panel.ignoresMouseEvents = true }
                 continue
             }
             let p = screen.local(location)
-            screen.world.pointerMoved(x: p.x, y: p.y, vx: pointerVelocity.dx, vy: pointerVelocity.dy)
+            let velocity = pointerVelocity
+            let hit = screen.stage.with {
+                $0.pointerMoved(x: p.x, y: p.y, vx: velocity.dx, vy: velocity.dy)
+                return $0.hitTest(x: p.x, y: p.y)
+            }
             if holding == nil {
-                let hit = screen.world.hitTest(x: p.x, y: p.y)
                 if screen.panel.ignoresMouseEvents == hit { screen.panel.ignoresMouseEvents = !hit }
             }
             if hypot(pointerVelocity.dx, pointerVelocity.dy) > 300 {
                 lastGust = now
-                if pace != .play { setClock(.play) }
+                if pace == .still { setClock(.drift) }
             }
         }
     }
@@ -496,18 +673,21 @@ final class WeatherController {
         let p = screen.local(NSEvent.mouseLocation)
         switch event.type {
         case .leftMouseDown:
-            if screen.world.pointerDown(x: p.x, y: p.y), screen.world.isHolding { holding = screen.screen.id }
+            if screen.stage.with({ $0.pointerDown(x: p.x, y: p.y) && $0.isHolding }) { holding = screen.screen.id }
             setClock(.play)
         case .leftMouseDragged:
             pointerMoved()
-            screen.world.pointerDragged(x: p.x, y: p.y)
+            screen.stage.with { $0.pointerDragged(x: p.x, y: p.y) }
         case .leftMouseUp:
             // Held still before letting go: a drop, not a throw.
             let paused = (ContinuousClock.now - pointerTime) / .seconds(1) > 0.1
             if paused { pointerVelocity = .zero }
-            screen.world.pointerUp(vx: pointerVelocity.dx, vy: pointerVelocity.dy)
+            let velocity = pointerVelocity
+            let hit = screen.stage.with {
+                $0.pointerUp(vx: velocity.dx, vy: velocity.dy)
+                return $0.hitTest(x: p.x, y: p.y)
+            }
             holding = nil
-            let hit = screen.world.hitTest(x: p.x, y: p.y)
             screen.panel.ignoresMouseEvents = !hit
         default:
             break
