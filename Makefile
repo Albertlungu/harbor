@@ -11,8 +11,11 @@ SIGN_IDENTITY := Harbor Local Signing
 SIGN_PASSWORD := harbor-local-signing
 # Each build gets a new CFBundleVersion so Harbor can tell it was updated.
 BUILD_STAMP := $(shell date +%Y%m%d%H%M%S)
+# Support/Info.plist is the one place the version lives.
+VERSION := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Support/Info.plist)
+ZIP := dist/Harbor-$(VERSION).zip
 
-.PHONY: build test app run install clean
+.PHONY: build test app run install release clean
 
 build:
 	swift build
@@ -35,6 +38,7 @@ app:
 		codesign --force --keychain "$(SIGN_KEYCHAIN)" --sign "$(SIGN_IDENTITY)" $(APP)/Contents/MacOS/harbor-mcp 2>/dev/null; \
 		codesign --force --keychain "$(SIGN_KEYCHAIN)" --sign "$(SIGN_IDENTITY)" $(APP); \
 	else \
+		codesign --force --sign - $(APP)/Contents/MacOS/harbor-mcp 2>/dev/null; \
 		codesign --force --sign - $(APP); \
 	fi
 
@@ -48,6 +52,16 @@ install: app
 	rm -rf /Applications/Harbor.app
 	ditto $(APP) /Applications/Harbor.app
 	open /Applications/Harbor.app
+
+# Zips the signed app for a GitHub release. ditto keeps the signature and extended attributes
+# intact, which zip does not.
+release: test app
+	codesign --verify --deep --strict $(APP)
+	rm -f $(ZIP) $(ZIP).sha256
+	ditto -c -k --sequesterRsrc --keepParent $(APP) $(ZIP)
+	cd dist && shasum -a 256 Harbor-$(VERSION).zip > Harbor-$(VERSION).zip.sha256
+	@echo "Built $(ZIP)"
+	@cat $(ZIP).sha256
 
 clean:
 	rm -rf .build dist

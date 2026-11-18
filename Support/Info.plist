@@ -11,7 +11,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -35,6 +35,18 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Harbor asks Finder to empty the Trash, and Music or Spotify for the playback controls in its menu.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Harbor shows the Desktop folder's contents when you pin it to a dock or browse it from one.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Harbor shows the Documents folder's contents when you pin it to a dock or browse it from one.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Harbor shows the Downloads folder's contents when you pin it to a dock or browse it from one.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Harbor shows the contents of folders on external drives that you pin to a dock.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Harbor shows the contents of folders on network drives that you pin to a dock.</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Harbor reads battery levels of connected Bluetooth accessories for the Bluetooth Battery widget.</string>
 </dict>

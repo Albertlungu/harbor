@@ -86,7 +86,9 @@ final class AppModel {
             // A previous session ended without restoring the macOS Dock.
             _ = nativeDock.restore()
         }
-        if store.settings.onboardingDone && PermissionsGate.shouldShow(model: self) {
+        // Checked on every launch so the first one records the build; otherwise the second launch
+        // would greet a new person with the "installed or updated" permissions window.
+        if PermissionsGate.shouldShow(model: self) && store.settings.onboardingDone {
             windows.showPermissions(intro: true)
         }
         if !store.settings.onboardingDone {
