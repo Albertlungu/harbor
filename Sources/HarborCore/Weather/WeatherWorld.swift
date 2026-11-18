@@ -96,7 +96,7 @@ public struct SeasonTuning: Sendable {
     public static func of(_ season: Season) -> SeasonTuning {
         switch season {
         // Packed snow holds steeper, rougher slopes than loose leaf litter, which holds more than petals.
-        case .winter: SeasonTuning(rate: 55, slope: 0.9, roughness: 0.8, edgeHold: 5, cap: 40, deposit: 1.6, melt: 0.1,
+        case .winter: SeasonTuning(rate: 55, slope: 1.3, roughness: 0.5, edgeHold: 5, cap: 40, deposit: 1.6, melt: 0.1,
                                    calmMelt: 0.8)
         case .autumn: SeasonTuning(rate: 10, slope: 0.7, roughness: 0.6, edgeHold: 8, cap: 24, deposit: 2.2, melt: 0.15,
                                    calmMelt: 0.5)
@@ -470,7 +470,7 @@ public struct WeatherWorld: Sendable {
                     left -= piece
                     particles.append(WeatherParticle(kind: .chunk, x: spill.x + rng.range(-half, half),
                                                      y: spill.y + rng.range(0, max(1, spill.depth)),
-                                                     vx: rng.range(-25, 25), vy: rng.range(-30, 30),
+                                                     vx: rng.range(-25, 25), vy: rng.range(-60, 40),
                                                      size: (piece / .pi).squareRoot(), angle: rng.range(0, 6.28),
                                                      phase: rng.range(-6, 6), mass: piece))
                 }
@@ -672,7 +672,7 @@ public struct WeatherWorld: Sendable {
             let area = p.mass > 0 ? p.mass : .pi * p.size * p.size
             // A clod lands as a clod: a small lopsided lump, a little of it bursting into powder.
             mound(on: li, x: p.x + p.vx * 0.01, area: area,
-                  halfWidth: max(WeatherLedge.column, p.size * rng.range(0.8, 1.3)))
+                  halfWidth: max(3, p.size * rng.range(1.3, 2)))
             let speed = (p.vx * p.vx + p.vy * p.vy).squareRoot()
             for _ in 0..<(speed > 300 ? 3 : 1) { kick(x: p.x, y: top, vx: rng.range(-50, 50), vy: rng.range(40, 110)) }
         case .blossom:
@@ -698,16 +698,20 @@ public struct WeatherWorld: Sendable {
     /// Puts down `area` of pile as a rounded bump about `halfWidth` either side of `x`, each column a little
     /// more or less than its neighbours so it never comes out as a neat cone. Columns past the ledge's ends
     /// are moved in, so none of it is lost.
-    mutating func mound(on li: Int, x: Double, area: Double, halfWidth: Double) {
+    mutating func mound(on li: Int, x: Double, area: Double, halfWidth asked: Double) {
         guard area > 0, ledges[li].count > 0 else { return }
         let ledge = ledges[li]
+        // Never steeper than the pile holds, or it would slump straight back into a cone.
+        let halfWidth = max(asked, (3 * area / max(tuning.slope, 0.1)).squareRoot())
         let first = ledge.index(x: min(max(x - halfWidth, ledge.minX), ledge.maxX - 0.01)) ?? 0
         let last = ledge.index(x: min(max(x + halfWidth, ledge.minX), ledge.maxX - 0.01)) ?? ledge.count - 1
         var weights: [Double] = []
         weights.reserveCapacity(last - first + 1)
+        // Two slow random waves across the bump give it shoulders and dips without column-to-column spikes.
+        let a = rng.range(2, 5), b = rng.range(5, 9), pa = rng.range(0, 6.28), pb = rng.range(0, 6.28)
         for i in first...last {
             let d = (ledge.centerX(i) - x) / max(halfWidth, 1)
-            weights.append(max(0.05, 1 - d * d) * rng.range(0.55, 1.45))
+            weights.append(max(0.05, 1 - d * d) * max(0.2, 1 + 0.4 * sin(d * a + pa) + 0.25 * sin(d * b + pb)))
         }
         let total = weights.reduce(0, +)
         for (k, i) in (first...last).enumerated() {

@@ -523,8 +523,8 @@ extension WeatherWorld {
         let total = weights.reduce(0, +)
         weights = weights.map { $0 / total }
         for w in weights {
-            let offset = dir * rng.range(0, radius * 1.5) + rng.range(-radius * 0.6, radius * 0.6)
-            mound(on: li, x: x + offset, area: budget * w, halfWidth: rng.range(radius * 0.3, radius * 0.8))
+            let offset = dir * rng.range(0, radius * 2.5) + rng.range(-radius, radius)
+            mound(on: li, x: x + offset, area: budget * w, halfWidth: rng.range(radius * 0.8, radius * 1.6))
         }
     }
 

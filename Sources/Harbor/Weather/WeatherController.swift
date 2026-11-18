@@ -285,6 +285,7 @@ final class WeatherController {
         watch(distributed, Notification.Name("com.apple.screenIsUnlocked")) { $0.locked = false; $0.updateVisibility() }
         observeSettings()
         reconcile()
+        if environment["HARBOR_WEATHER_SCRIPT"] != nil { runScript() }
     }
 
     private func watch(_ center: NotificationCenter, _ name: Notification.Name,
@@ -640,6 +641,53 @@ final class WeatherController {
             if falling, !screen.hidden, pace == .still { setClock(.drift) }
         }
         updateVisibility()
+    }
+
+    // MARK: Development
+
+    /// HARBOR_WEATHER_SCRIPT plays a scene for checking the weather by eye: a test window gets a deep drift,
+    /// is hit by a snowball, moved, buried again and closed; then autumn, spring and summer each get their
+    /// piles filled so a roaming pet nearby has something to play in. Its value picks the screen by index.
+    private func runScript() {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 420, height: 220), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: false)
+        window.title = "Weather test"
+        window.isReleasedWhenClosed = false
+        let screens = NSScreen.screens
+        let index = min(max(Int(environment["HARBOR_WEATHER_SCRIPT"] ?? "") ?? 0, 0), max(screens.count - 1, 0))
+        let main = screens.isEmpty ? .zero : screens[index].visibleFrame
+        window.setFrameOrigin(CGPoint(x: main.midX - 210, y: main.midY - 160))
+        let season = { (choice: SeasonChoice) in self.model?.store.updateSettings { $0.weather.season = choice } }
+        let fill = { (depth: Double) in for screen in self.screens.values { screen.stage.with { $0.fill(depth: depth) } } }
+        let steps: [(at: Double, name: String, run: @MainActor () -> Void)] = [
+            (1, "window", { window.orderFrontRegardless(); self.snapshot() }),
+            (3, "bury", { fill(7) }),
+            (6, "throw", {
+                let f = window.frame
+                for screen in self.screens.values where screen.screen.geometry.frame.intersects(f) {
+                    let p = screen.local(CGPoint(x: f.minX + 60, y: f.maxY + 120))
+                    screen.stage.with { $0.throwSnowball(x: p.x, y: p.y, r: 10, vx: 520, vy: -300) }
+                }
+            }),
+            (10, "move", { window.setFrameOrigin(CGPoint(x: window.frame.minX + 240, y: window.frame.minY)); self.snapshot() }),
+            (14, "rebury", { fill(7) }),
+            (17, "close", { window.close(); self.snapshot() }),
+            (24, "autumn", { season(.autumn) }),
+            (25, "leaves", { fill(9) }),
+            (55, "spring", { season(.spring) }),
+            (56, "petals", { fill(5) }),
+            (80, "summer", { season(.summer) }),
+            (81, "bubbles", { fill(0) }),
+            (105, "done", {}),
+        ]
+        for step in steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + step.at) {
+                MainActor.assumeIsolated {
+                    FileHandle.standardError.write(Data("WEATHER-SCRIPT \(step.name) \(Date.now.timeIntervalSince1970)\n".utf8))
+                    step.run()
+                }
+            }
+        }
     }
 
     // MARK: Pointer

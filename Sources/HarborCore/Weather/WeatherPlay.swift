@@ -478,4 +478,45 @@ extension WeatherWorld {
             for _ in 0..<Int(4 * power) { kick(x: x + rng.range(-6, 6), y: top + 1, vx: rng.range(-80, 80), vy: rng.range(50, 150)) }
         }
     }
+
+    /// Fills every ledge with the season's makings, unevenly: drifts, leaf litter, petals with puddles and
+    /// flowers, or a few bubbles in summer. A development aid for looking at play without waiting for it.
+    public mutating func fill(depth: Double) {
+        for li in ledges.indices {
+            for c in 0..<ledges[li].count {
+                let d = depth * (1 + 0.3 * WeatherLedge.grain(ledges[li].firstColumn + c))
+                switch season {
+                case .winter, .autumn:
+                    ledges[li].heights[c] = min(tuning.cap, d)
+                case .spring:
+                    ledges[li].heights[c] = min(tuning.cap, d * 0.4)
+                    if (c / 30) % 2 == 0 { ledges[li].water[c] = 1.2 }
+                case .summer:
+                    break
+                }
+            }
+            if season == .spring {
+                ledges[li].flowers = stride(from: 10, to: ledges[li].count, by: 40).map {
+                    WeatherFlower(column: $0, growth: 1, tint: UInt8($0 % 4))
+                }
+            }
+            ledges[li].restless = true
+        }
+        if season == .summer {
+            for k in 0..<10 where particles.count < Self.maxParticles {
+                particles.append(WeatherParticle(kind: .bubble, x: width * Double(k + 1) / 11, y: rng.range(20, 160),
+                                                 vy: 25, size: rng.range(8, 18), phase: rng.range(0, 6.28),
+                                                 life: rng.range(20, 30)))
+            }
+        }
+    }
+
+    /// Throws a snowball of radius `r` from a point, as if flung by the pointer.
+    public mutating func throwSnowball(x: Double, y: Double, r: Double, vx: Double, vy: Double) {
+        var ball = Snowball(id: nextBallID, x: x, y: y, r: r, state: .flying)
+        ball.vx = vx
+        ball.vy = vy
+        balls.append(ball)
+        nextBallID += 1
+    }
 }
