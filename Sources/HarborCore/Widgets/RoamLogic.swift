@@ -206,6 +206,58 @@ public enum RoamSurfaces {
         }
         return result
     }
+
+    /// Shortens the lines that run into a rounded screen corner, so the pet's feet stay out of the masked
+    /// curve: ledges and undersides within reach of a rounded edge lose the radius at each end, and the
+    /// screen's sides end the radius short of a rounded end. Ends never move in further than `half`, the
+    /// pet's half width, so a pet letting go at the foot of a screen side still lands on the floor.
+    public static func avoiding(_ corners: RoamCorners, screen: CGRect, half: Double,
+                                surfaces: [RoamSurface]) -> [RoamSurface] {
+        guard corners.radius > 0, corners.bottom || corners.top else { return surfaces }
+        let reach = corners.radius + half * 2
+        let inset = min(corners.radius, half)
+        return surfaces.compactMap { surface in
+            let nearBottom = corners.bottom && surface.y < screen.minY + reach
+            let nearTop = corners.top && (surface.kind == .menuBar || surface.y > screen.maxY - reach)
+            guard nearBottom || nearTop else { return surface }
+            var clipped = surface
+            clipped.minX = max(surface.minX, screen.minX + inset)
+            clipped.maxX = min(surface.maxX, screen.maxX - inset)
+            // The floor and the top edge always stay, however narrow the screen.
+            if clipped.maxX - clipped.minX >= minLength || surface.kind == .floor || surface.kind == .menuBar {
+                if clipped.maxX < clipped.minX { clipped.maxX = clipped.minX }
+                return clipped
+            }
+            return nil
+        }
+    }
+
+    public static func avoiding(_ corners: RoamCorners, screen: CGRect, walls: [RoamWall]) -> [RoamWall] {
+        guard corners.radius > 0, corners.bottom || corners.top else { return walls }
+        let inset = corners.radius
+        return walls.compactMap { wall in
+            guard wall.kind == .screen else { return wall }
+            var clipped = wall
+            if corners.bottom { clipped.minY = max(wall.minY, screen.minY + inset) }
+            if corners.top { clipped.maxY = min(wall.maxY, screen.maxY - inset) }
+            return clipped.maxY - clipped.minY >= minLength ? clipped : nil
+        }
+    }
+}
+
+/// Which of the screen's corners are masked round, and how far the curve reaches.
+public struct RoamCorners: Equatable, Sendable {
+    public var radius: Double
+    public var bottom: Bool
+    public var top: Bool
+
+    public static let none = RoamCorners(radius: 0, bottom: false, top: false)
+
+    public init(radius: Double, bottom: Bool, top: Bool) {
+        self.radius = radius
+        self.bottom = bottom
+        self.top = top
+    }
 }
 
 public enum RoamPhysics {

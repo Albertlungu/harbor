@@ -321,7 +321,36 @@ final class RoamCoordinator {
     }
 
     private func menuBarHeight(_ screen: ConnectedScreen) -> Double {
-        max(0, screen.geometry.frame.maxY - screen.geometry.visibleFrame.maxY)
+        let frame = screen.geometry.frame
+        guard isFullscreen(frame) else { return max(0, frame.maxY - screen.geometry.visibleFrame.maxY) }
+        // A fullscreen Space hides the menu bar unless the app keeps it, and then its window stops below the bar.
+        let top = backdrop(on: frame).map(\.frame.maxY).max() ?? frame.maxY
+        return max(0, frame.maxY - top)
+    }
+
+    private func isFullscreen(_ frame: CGRect) -> Bool {
+        fullscreen.contains { $0.intersects(frame.insetBy(dx: 1, dy: 1)) }
+    }
+
+    /// The window filling a fullscreen Space. It is the backdrop there, not a window to stand on: its top
+    /// edge is the screen's top and its sides are the screen's sides.
+    private func backdrop(on frame: CGRect) -> [RoamWindow] {
+        guard isFullscreen(frame) else { return [] }
+        return windows.filter {
+            $0.frame.intersects(frame) && $0.frame.width >= frame.width - 1 && $0.frame.height >= frame.height - 60
+        }
+    }
+
+    /// Windows the pet can use on a screen: everything on it except a fullscreen app's own window.
+    private func standable(on frame: CGRect) -> [RoamWindow] {
+        let behind = backdrop(on: frame)
+        return windows.filter { $0.frame.intersects(frame) && !behind.contains($0) }
+    }
+
+    /// The corners Harbor masks round, which the pet keeps out of.
+    private var corners: RoamCorners {
+        guard let settings = model?.store.settings, settings.roundScreenCorners else { return .none }
+        return RoamCorners(radius: settings.screenCornerRadius.rounded(), bottom: true, top: settings.roundTopCorners)
     }
 
     private func menuBarY(_ screen: ConnectedScreen) -> Double? {
@@ -345,16 +374,19 @@ final class RoamCoordinator {
 
     private func rebuildSurfaces(_ pet: RoamPet) {
         let frame = pet.screen.geometry.frame
-        let onScreen = windows.filter { $0.frame.intersects(frame) }
+        let onScreen = standable(on: frame)
+        let menuBar = menuBarHeight(pet.screen)
+        let corners = corners
+        let half = pet.unit / 2
         pet.bars = visibleBars(on: pet.screen)
         let seen = pet.seesLedges ? visionLedges : []
-        let surfaces = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
-                                          docks: pet.bars, walkOnWindows: pet.walkOnWindows,
-                                          elements: (elements + seen).filter { $0.intersects(frame) })
-        let walls = RoamSurfaces.walls(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
-                                       walkOnWindows: pet.walkOnWindows)
-        let ceilings = RoamSurfaces.ceilings(screen: frame, menuBarHeight: menuBarHeight(pet.screen), windows: onScreen,
-                                             walkOnWindows: pet.walkOnWindows, unit: pet.unit)
+        let surfaces = RoamSurfaces.avoiding(corners, screen: frame, half: half, surfaces: RoamSurfaces.build(
+            screen: frame, menuBarHeight: menuBar, windows: onScreen, docks: pet.bars, walkOnWindows: pet.walkOnWindows,
+            elements: (elements + seen).filter { $0.intersects(frame) }))
+        let walls = RoamSurfaces.avoiding(corners, screen: frame, walls: RoamSurfaces.walls(
+            screen: frame, menuBarHeight: menuBar, windows: onScreen, walkOnWindows: pet.walkOnWindows))
+        let ceilings = RoamSurfaces.avoiding(corners, screen: frame, half: half, surfaces: RoamSurfaces.ceilings(
+            screen: frame, menuBarHeight: menuBar, windows: onScreen, walkOnWindows: pet.walkOnWindows, unit: pet.unit))
         // Building routes flies every possible leap, so it only happens when something actually moved.
         if surfaces != pet.surfaces || walls != pet.walls || ceilings != pet.ceilings || pet.nav?.half != pet.unit / 2 {
             pet.surfaces = surfaces
@@ -466,7 +498,7 @@ final class RoamCoordinator {
                                                    && RoamBrain.needsFrames($0.state) }) else { return }
         let frame = pet.screen.geometry.frame
         let known = RoamSurfaces.build(screen: frame, menuBarHeight: menuBarHeight(pet.screen),
-                                       windows: windows.filter { $0.frame.intersects(frame) }, docks: pet.bars,
+                                       windows: standable(on: frame), docks: pet.bars,
                                        walkOnWindows: true, elements: elements.filter { $0.intersects(frame) })
         vision.lookIfDue(frame: frame, menuBarHeight: menuBarHeight(pet.screen), known: known)
     }
@@ -583,7 +615,7 @@ final class RoamCoordinator {
             pet.state.preferMenuBar = true
         } else {
             pet.state.y = min(RoamSurfaces.escapingTitleZone(x: pet.state.x, y: pet.state.y,
-                                                             zone: RoamSurfaces.titleZone(windows)),
+                                                             zone: RoamSurfaces.titleZone(standable(on: pet.screen.geometry.frame))),
                               menuBarY(pet.screen) ?? .infinity)
             pet.state.preferMenuBar = false
             emit(RoamBrain.release(&pet.state, velocity: velocity, env: environment(pet)), for: pet)
