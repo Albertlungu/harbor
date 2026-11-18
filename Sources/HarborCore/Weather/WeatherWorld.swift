@@ -3,6 +3,8 @@ import Foundation
 
 public enum WeatherParticleKind: UInt8, Sendable {
     case flake, leaf, petal, drop, splash, seed, firefly, bubble, chunk, puff
+    /// A flower that was picked or fell off its ledge; it replants wherever it lands.
+    case blossom
 }
 
 public struct WeatherParticle: Equatable, Sendable {
@@ -18,6 +20,8 @@ public struct WeatherParticle: Equatable, Sendable {
     /// Seconds left, for kinds that fade.
     public var life = 0.0
     public var tint: UInt8 = 0
+    /// Area of pile it puts back where it lands; zero for the season's usual amount.
+    public var mass = 0.0
 }
 
 /// A roaming pet as the weather sees it, in the screen's local coordinates.
@@ -28,14 +32,18 @@ public struct WeatherPet: Equatable, Sendable {
     public var vx: Double
     public var vy: Double
     public var unit: Double
+    /// How keen it is to go and play: 0 while it can't or shouldn't (quiet, asleep, held), about 1 normally
+    /// and more for a lively pet.
+    public var playful: Double
 
-    public init(id: String, x: Double, y: Double, vx: Double, vy: Double, unit: Double) {
+    public init(id: String, x: Double, y: Double, vx: Double, vy: Double, unit: Double, playful: Double = 1) {
         self.id = id
         self.x = x
         self.y = y
         self.vx = vx
         self.vy = vy
         self.unit = unit
+        self.playful = playful
     }
 }
 
@@ -45,6 +53,10 @@ public enum WeatherEvent: Equatable, Sendable {
     case snowman(x: Double, y: Double)
     /// A small hop the weather would like a pet to make, toward something to play with.
     case nudge(pet: String, dx: Double, dy: Double)
+    /// A walk along the pet's ledge to `x`.
+    case walk(pet: String, x: Double)
+    /// How the pet should look for the next `seconds`; `ball` is the radius of a snowball in its paws.
+    case pose(pet: String, pose: WeatherPetPose, seconds: Double, ball: Double)
 }
 
 /// Seeded so the simulation runs the same way under test.
@@ -68,8 +80,10 @@ public struct WeatherRandom: Sendable {
 public struct SeasonTuning: Sendable {
     /// Particles a second across 1000 points of screen width at full intensity.
     public var rate: Double
-    /// Steepest step between neighbouring columns before the pile slumps.
+    /// Steepest step between neighbouring columns before the pile slumps, on average.
     public var slope: Double
+    /// How much the slope a column holds varies from column to column, as a fraction of `slope`.
+    public var roughness: Double
     /// Depth an open end holds before it spills over.
     public var edgeHold: Double
     public var cap: Double
@@ -81,10 +95,14 @@ public struct SeasonTuning: Sendable {
 
     public static func of(_ season: Season) -> SeasonTuning {
         switch season {
-        case .winter: SeasonTuning(rate: 55, slope: 0.6, edgeHold: 5, cap: 40, deposit: 1.6, melt: 0.1, calmMelt: 0.8)
-        case .autumn: SeasonTuning(rate: 10, slope: 0.9, edgeHold: 8, cap: 24, deposit: 2.2, melt: 0.15, calmMelt: 0.5)
-        case .spring: SeasonTuning(rate: 12, slope: 0.5, edgeHold: 3, cap: 6, deposit: 0.6, melt: 0.3, calmMelt: 0.8)
-        case .summer: SeasonTuning(rate: 4, slope: 0.5, edgeHold: 3, cap: 0, deposit: 0, melt: 1, calmMelt: 1)
+        // Packed snow holds steeper, rougher slopes than loose leaf litter, which holds more than petals.
+        case .winter: SeasonTuning(rate: 55, slope: 1.3, roughness: 0.5, edgeHold: 5, cap: 40, deposit: 1.6, melt: 0.1,
+                                   calmMelt: 0.8)
+        case .autumn: SeasonTuning(rate: 10, slope: 0.7, roughness: 0.6, edgeHold: 8, cap: 24, deposit: 2.2, melt: 0.15,
+                                   calmMelt: 0.5)
+        case .spring: SeasonTuning(rate: 12, slope: 0.5, roughness: 0.4, edgeHold: 3, cap: 6, deposit: 0.6, melt: 0.3,
+                                   calmMelt: 0.8)
+        case .summer: SeasonTuning(rate: 4, slope: 0.5, roughness: 0, edgeHold: 3, cap: 0, deposit: 0, melt: 1, calmMelt: 1)
         }
     }
 }
@@ -107,6 +125,9 @@ public struct WeatherWorld: Sendable {
     public internal(set) var ledges: [WeatherLedge] = []
     public internal(set) var particles: [WeatherParticle] = []
     public internal(set) var balls: [Snowball] = []
+    /// Whatever the pointer has picked up: a handful of leaves or petals, cupped fireflies, a flower, a bubble
+    /// being blown. They move with the pointer until let go.
+    public internal(set) var carried: [WeatherParticle] = []
     public internal(set) var time = 0.0
     public internal(set) var wind = 0.0
     /// Whether it is falling right now; weather comes in spells with calm between them.
@@ -127,12 +148,29 @@ public struct WeatherWorld: Sendable {
     var nextBallID = 1
     var pointer: (x: Double, y: Double, vx: Double, vy: Double)?
     var hold: Hold?
+    /// Where and when the current press began, whether it has moved off that spot yet, and whether it
+    /// scooped a fresh ball, so a click, a hold and a drag can each mean something different.
+    var press: Press?
+    /// Where the pointer holding something is now.
+    var grip = (x: 0.0, y: 0.0)
     var petMemory: [String: PetMemory] = [:]
     var events: [WeatherEvent] = []
 
     enum Hold: Equatable, Sendable {
         case ball(Int)
         case rake(ledgeY: Double, lastX: Double)
+        /// Leaves or petals, cupped fireflies, a flower or a growing bubble, all in `carried`.
+        case handful, jar, flower, bubble
+        /// A snow angel pressed into the pile; nothing more happens until let go.
+        case angel
+    }
+
+    struct Press: Sendable {
+        var x: Double
+        var y: Double
+        var time: Double
+        var moved = false
+        var scooped = false
     }
 
     struct PetMemory: Sendable {
@@ -141,6 +179,7 @@ public struct WeatherWorld: Sendable {
         var cooldown = 4.0
         var ball: Int?
         var still = 0.0
+        var plan: PetPlan?
     }
 
     public init(width: Double, height: Double, season: Season, intensity: Double = 0.5, accumulation: Bool = true,
@@ -182,7 +221,9 @@ public struct WeatherWorld: Sendable {
     private mutating func seasonChanged() {
         particles.removeAll()
         balls.removeAll()
+        carried.removeAll()
         hold = nil
+        press = nil
         for i in ledges.indices {
             ledges[i].heights = Array(repeating: 0, count: ledges[i].count)
             ledges[i].water = Array(repeating: 0, count: ledges[i].count)
@@ -224,7 +265,7 @@ public struct WeatherWorld: Sendable {
         let spills = WeatherLedge.carry(from: ledges, into: &next)
         ledges = next
         if !quietly {
-            for spill in spills { spawnChunks(x: spill.x, y: spill.y, area: spill.area, vx: 0) }
+            for spill in spills { collapse(spill) }
         }
         var lost: [Int] = []
         for i in balls.indices where balls[i].state == .resting && balls[i].below == nil {
@@ -239,6 +280,22 @@ public struct WeatherWorld: Sendable {
             }
         }
         for id in lost { removeStack(id) }
+    }
+
+    /// The ledge a particle falling from `from` to `to` at `x` lands on: the highest pile top it reached
+    /// whose ledge it was still above. A pile that grew past a particle within one step still catches it,
+    /// where looking only below its last height would let it fall through and vanish.
+    func ledgeHit(x: Double, from: Double, to: Double) -> Int? {
+        var best: Int?
+        var bestTop = -Double.infinity
+        for i in ledges.indices where ledges[i].contains(x: x) && ledges[i].y <= from + 0.5 {
+            let top = ledges[i].top(x: x)
+            if top >= to, top > bestTop {
+                best = i
+                bestTop = top
+            }
+        }
+        return best
     }
 
     /// The ledge whose pile top is highest at `x` among those at or below `y`.
@@ -265,6 +322,7 @@ public struct WeatherWorld: Sendable {
         updateSpells(dt)
         spawn(dt)
         stepParticles(dt, pets: pets)
+        stepCarried(dt)
         stepBalls(dt)
         stepPets(dt, pets)
         settle(dt)
@@ -371,14 +429,15 @@ public struct WeatherWorld: Sendable {
                                          phase: rng.range(0, 6.28), life: rng.range(12, 25)))
     }
 
-    /// Falling chunks for `area` of pile that lost its ledge, or a splat.
+    /// Falling chunks for `area` of pile that tipped off an edge or burst from a ball.
     mutating func spawnChunks(x: Double, y: Double, area: Double, vx: Double) {
         guard area > 0 else { return }
         if season != .winter {
             // Leaves and petals fall back as themselves rather than as clumps.
             let count = min(12, Int(area / (tuning.deposit * WeatherLedge.column)) + 1)
             for _ in 0..<count where particles.count < Self.maxParticles {
-                kick(x: x + rng.range(-4, 4), y: y, vx: vx + rng.range(-30, 30), vy: rng.range(-20, 40))
+                kick(x: x + rng.range(-4, 4), y: y, vx: vx + rng.range(-30, 30), vy: rng.range(-20, 40),
+                     mass: area / Double(count))
             }
             return
         }
@@ -388,25 +447,86 @@ public struct WeatherWorld: Sendable {
             left -= piece
             particles.append(WeatherParticle(kind: .chunk, x: x + rng.range(-3, 3), y: y + rng.range(-2, 2),
                                              vx: vx + rng.range(-15, 15), vy: rng.range(-10, 20),
-                                             size: (piece / .pi).squareRoot(), angle: rng.range(0, 6.28)))
+                                             size: (piece / .pi).squareRoot(), angle: rng.range(0, 6.28),
+                                             phase: rng.range(-5, 5), mass: piece))
+        }
+    }
+
+    /// A run of pile whose ledge went away breaks up and falls as what it is made of: snow as tumbling clods
+    /// of every size with loose powder between them, leaves and petals one by one, puddles as drops and
+    /// flowers as flowers. Each piece carries its share, so what lands below adds up to what fell.
+    mutating func collapse(_ spill: WeatherLedge.Spill) {
+        let half = spill.width / 2
+        if spill.area > 0.5 {
+            switch season {
+            case .winter:
+                let powder = spill.area * 0.2
+                var left = spill.area - powder
+                while left > 0.5, particles.count < Self.maxParticles {
+                    // Mostly small clods with the odd big slab, the way a cornice breaks.
+                    let piece = min(left, rng.next() < 0.2 ? rng.range(16, 40) : rng.range(3, 14))
+                    left -= piece
+                    particles.append(WeatherParticle(kind: .chunk, x: spill.x + rng.range(-half, half),
+                                                     y: spill.y + rng.range(0, max(1, spill.depth)),
+                                                     vx: rng.range(-25, 25), vy: rng.range(-60, 40),
+                                                     size: (piece / .pi).squareRoot(), angle: rng.range(0, 6.28),
+                                                     phase: rng.range(-6, 6), mass: piece))
+                }
+                let loose = powder + max(0, left)
+                let count = min(24, Int(loose / 3) + 1)
+                for _ in 0..<count where particles.count < Self.maxParticles {
+                    particles.append(WeatherParticle(kind: .flake, x: spill.x + rng.range(-half, half),
+                                                     y: spill.y + rng.range(0, max(1, spill.depth)),
+                                                     vx: rng.range(-20, 20), vy: rng.range(-140, -40),
+                                                     size: rng.range(1.2, 2.6), phase: rng.range(0, 6.28),
+                                                     mass: loose / Double(count)))
+                }
+            case .autumn, .spring:
+                let each = tuning.deposit * WeatherLedge.column
+                let count = max(1, min(season == .autumn ? 60 : 40, Int((spill.area / each).rounded())))
+                for _ in 0..<count {
+                    kick(x: spill.x + rng.range(-half, half), y: spill.y + rng.range(0, max(1, spill.depth)),
+                         vx: rng.range(-30, 30), vy: rng.range(-50, 20), mass: spill.area / Double(count))
+                }
+            case .summer:
+                break
+            }
+        }
+        if spill.water > 0.3 {
+            for _ in 0..<min(30, Int(spill.water / 0.6) + 1) where particles.count < Self.maxParticles {
+                particles.append(WeatherParticle(kind: .drop, x: spill.x + rng.range(-half, half), y: spill.y + 1,
+                                                 vx: rng.range(-20, 20), vy: rng.range(-260, -90),
+                                                 size: rng.range(0.6, 1.0)))
+            }
+        }
+        for tint in spill.blooms where particles.count < Self.maxParticles {
+            particles.append(WeatherParticle(kind: .blossom, x: spill.x + rng.range(-half, half), y: spill.y + 4,
+                                             vx: rng.range(-30, 30), vy: rng.range(-20, 40), size: 2.2,
+                                             phase: rng.range(0, 6.28), tint: tint))
         }
     }
 
     /// One particle of the season's pile thrown into the air, by a pet's step, the pointer or a gust.
-    mutating func kick(x: Double, y: Double, vx: Double, vy: Double) {
+    /// `mass` is the area of pile it puts back where it lands; zero for a puff of snow, which melts in the air.
+    mutating func kick(x: Double, y: Double, vx: Double, vy: Double, mass: Double = 0) {
         guard particles.count < Self.maxParticles else { return }
         switch season {
         case .winter:
-            particles.append(WeatherParticle(kind: .puff, x: x, y: y, vx: vx, vy: vy, size: rng.range(1, 2.2),
-                                             life: rng.range(0.5, 0.9)))
+            if mass > 0 {
+                particles.append(WeatherParticle(kind: .flake, x: x, y: y, vx: vx, vy: vy, size: rng.range(1.2, 2.4),
+                                                 phase: rng.range(0, 6.28), mass: mass))
+            } else {
+                particles.append(WeatherParticle(kind: .puff, x: x, y: y, vx: vx, vy: vy, size: rng.range(1, 2.2),
+                                                 life: rng.range(0.5, 0.9)))
+            }
         case .autumn:
             particles.append(WeatherParticle(kind: .leaf, x: x, y: y, vx: vx, vy: vy, size: rng.range(5, 8),
                                              angle: rng.range(0, 6.28), phase: rng.range(0, 6.28),
-                                             tint: UInt8(rng.next() * 5)))
+                                             tint: UInt8(rng.next() * 5), mass: mass))
         case .spring:
             particles.append(WeatherParticle(kind: .petal, x: x, y: y, vx: vx, vy: vy, size: rng.range(3, 4.5),
                                              angle: rng.range(0, 6.28), phase: rng.range(0, 6.28),
-                                             tint: UInt8(rng.next() * 3)))
+                                             tint: UInt8(rng.next() * 3), mass: mass))
         case .summer:
             break
         }
@@ -420,8 +540,8 @@ public struct WeatherWorld: Sendable {
                 if ledges[i].heights[c] > 3, rng.next() < 0.5 {
                     let x = ledges[i].centerX(c)
                     let top = ledges[i].y + ledges[i].heights[c]
-                    _ = ledges[i].take(x: x, radius: 1, amount: tuning.deposit)
-                    kick(x: x, y: top, vx: strength * 0.4, vy: rng.range(60, 140))
+                    let area = ledges[i].take(x: x, radius: 1, amount: tuning.deposit)
+                    kick(x: x, y: top, vx: strength * 0.4, vy: rng.range(60, 140), mass: area)
                 }
                 c += Int(rng.range(6, 16))
             }
@@ -457,6 +577,12 @@ public struct WeatherWorld: Sendable {
                 alive = p.life > 0
             case .chunk:
                 p.vy -= Self.gravity * dt
+                // Clods tumble as they fall.
+                p.angle += p.phase * dt
+            case .blossom:
+                p.vx += (wind * 0.3 - p.vx) * min(1, dt * 1.5)
+                p.vy = max(-240, p.vy - Self.gravity * 0.4 * dt)
+                p.angle = sin(p.phase + time * 3) * 0.4
             case .seed:
                 p.vx += (wind * 1.6 + sin(p.phase + time * 0.9) * 8 - p.vx) * min(1, dt * 0.8)
                 p.vy += (-10 + sin(p.phase + time * 0.6) * 14 - p.vy) * min(1, dt * 0.8)
@@ -508,7 +634,7 @@ public struct WeatherWorld: Sendable {
             p.x += p.vx * dt
             p.y += p.vy * dt
             if alive, p.vy < 0, p.kind != .splash, p.kind != .puff, p.kind != .firefly, p.kind != .bubble,
-               let li = ledgeBelow(x: p.x, y: prevY), ledges[li].top(x: p.x) >= p.y {
+               let li = ledgeHit(x: p.x, from: prevY, to: p.y) {
                 land(p, on: li)
                 alive = false
             }
@@ -527,13 +653,28 @@ public struct WeatherWorld: Sendable {
         let t = tuning
         switch p.kind {
         case .flake:
-            if accumulation { ledges[li].deposit(x: p.x, amount: t.deposit * p.size / 2.3, cap: t.cap) }
+            // Snow that fell off something lands whatever the setting, so a closed window's pile isn't lost.
+            if p.mass > 0 {
+                ledges[li].deposit(x: p.x, amount: p.mass / WeatherLedge.column, cap: t.cap)
+            } else if accumulation {
+                ledges[li].deposit(x: p.x, amount: t.deposit * p.size / 2.3, cap: t.cap)
+            }
         case .leaf, .petal:
-            if accumulation { ledges[li].deposit(x: p.x, amount: t.deposit, cap: t.cap) }
+            if p.mass > 0 {
+                ledges[li].deposit(x: p.x, amount: p.mass / WeatherLedge.column, cap: t.cap)
+            } else if accumulation {
+                ledges[li].deposit(x: p.x, amount: t.deposit, cap: t.cap)
+            }
         case .chunk:
             let top = ledges[li].top(x: p.x)
-            if accumulation { depositArea(on: li, x: p.x, area: .pi * p.size * p.size, radius: p.size) }
-            for _ in 0..<2 { kick(x: p.x, y: top, vx: rng.range(-40, 40), vy: rng.range(40, 100)) }
+            let area = p.mass > 0 ? p.mass : .pi * p.size * p.size
+            // A clod lands as a clod: a small lopsided lump, a little of it bursting into powder.
+            mound(on: li, x: p.x + p.vx * 0.01, area: area,
+                  halfWidth: max(3, p.size * rng.range(1.3, 2)))
+            let speed = (p.vx * p.vx + p.vy * p.vy).squareRoot()
+            for _ in 0..<(speed > 300 ? 3 : 1) { kick(x: p.x, y: top, vx: rng.range(-50, 50), vy: rng.range(40, 110)) }
+        case .blossom:
+            replant(p, on: li)
         case .drop:
             let top = ledges[li].top(x: p.x)
             for _ in 0..<2 where particles.count < Self.maxParticles {
@@ -550,6 +691,31 @@ public struct WeatherWorld: Sendable {
         default:
             break
         }
+    }
+
+    /// Puts down `area` of pile as a rounded bump about `halfWidth` either side of `x`, each column a little
+    /// more or less than its neighbours so it never comes out as a neat cone. Columns past the ledge's ends
+    /// are moved in, so none of it is lost.
+    mutating func mound(on li: Int, x: Double, area: Double, halfWidth asked: Double) {
+        guard area > 0, ledges[li].count > 0 else { return }
+        let ledge = ledges[li]
+        // Never steeper than the pile holds, or it would slump straight back into a cone.
+        let halfWidth = max(asked, (3 * area / max(tuning.slope, 0.1)).squareRoot())
+        let first = ledge.index(x: min(max(x - halfWidth, ledge.minX), ledge.maxX - 0.01)) ?? 0
+        let last = ledge.index(x: min(max(x + halfWidth, ledge.minX), ledge.maxX - 0.01)) ?? ledge.count - 1
+        var weights: [Double] = []
+        weights.reserveCapacity(last - first + 1)
+        // Two slow random waves across the bump give it shoulders and dips without column-to-column spikes.
+        let a = rng.range(2, 5), b = rng.range(5, 9), pa = rng.range(0, 6.28), pb = rng.range(0, 6.28)
+        for i in first...last {
+            let d = (ledge.centerX(i) - x) / max(halfWidth, 1)
+            weights.append(max(0.05, 1 - d * d) * max(0.2, 1 + 0.4 * sin(d * a + pa) + 0.25 * sin(d * b + pb)))
+        }
+        let total = weights.reduce(0, +)
+        for (k, i) in (first...last).enumerated() {
+            ledges[li].heights[i] = min(tuning.cap, ledges[li].heights[i] + area * weights[k] / total / WeatherLedge.column)
+        }
+        ledges[li].mark(first, last)
     }
 
     /// Spreads `area` of pile over the columns in `x ± radius`.
@@ -576,7 +742,7 @@ public struct WeatherWorld: Sendable {
     private mutating func settle(_ dt: Double) {
         let t = tuning
         for i in ledges.indices where ledges[i].restless {
-            let spill = ledges[i].relax(slope: t.slope, edgeHold: t.edgeHold)
+            let spill = ledges[i].relax(slope: t.slope, edgeHold: t.edgeHold, roughness: t.roughness, rate: 0.5)
             if spill.left > 0.5 {
                 spawnChunks(x: ledges[i].minX - 2, y: ledges[i].y + t.edgeHold, area: spill.left, vx: -12)
             }

@@ -113,6 +113,41 @@ final class WeatherRenderer: @unchecked Sendable {
         lock.withLock { shown = digest }
     }
 
+    /// Draws `sprites` into a new image of `points` at `scale`, for development renders that never touch the screen.
+    static func image(_ sprites: [WeatherSprite], points: CGSize, scale: CGFloat) -> CGImage? {
+        guard let shared, let device, !sprites.isEmpty else { return nil }
+        let width = Int(points.width * scale), height = Int(points.height * scale)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height,
+                                                                  mipmapped: false)
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: descriptor), let commands = shared.queue.makeCommandBuffer(),
+              let buffer = sprites.withUnsafeBytes({ device.makeBuffer(bytes: $0.baseAddress!, length: $0.count) })
+        else { return nil }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = texture
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].storeAction = .store
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return nil }
+        var view = SIMD2<Float>(Float(points.width), Float(points.height))
+        encoder.setRenderPipelineState(shared.pipeline)
+        encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+        encoder.setVertexBytes(&view, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: sprites.count)
+        encoder.endEncoding()
+        commands.commit()
+        commands.waitUntilCompleted()
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        texture.getBytes(&bytes, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: CGColorSpaceCreateDeviceRGB(),
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                                | CGBitmapInfo.byteOrder32Little.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
     private static let shaderSource = """
     #include <metal_stdlib>
     using namespace metal;

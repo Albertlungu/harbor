@@ -41,10 +41,10 @@ struct SeasonsSettings: View {
 
     private func playNote(_ season: Season) -> String {
         switch season {
-        case .winter: "Drag a drift to roll a snowball, then let go to throw it. Stack three, biggest first, for a snowman."
-        case .autumn: "Drag along a pile to rake the leaves into a heap. A quick flick of the pointer scatters them."
-        case .spring: "Drag through fallen petals to sweep them. Flowers come up where rain has puddled."
-        case .summer: "Click bubbles to pop them. Seeds drift away from the pointer; fireflies come out in the evening."
+        case .winter: "Drag a drift to roll a snowball, then let go to throw it. Stack three, biggest first, for a snowman. Click snow to kick it; hold still on it to make an angel."
+        case .autumn: "Drag along a pile to rake the leaves into a heap, or lift up out of it to grab a handful and toss it. Click a pile to kick it; a quick flick scatters it."
+        case .spring: "Grab a handful of petals and throw them, click puddles to splash, and pick a flower to replant it somewhere else. Flowers come up where rain has puddled."
+        case .summer: "Click bubbles to pop them, push them along, or drag one to blow it bigger. Seeds drift away from the pointer; in the evening, click fireflies to catch them for a moment."
         }
     }
 

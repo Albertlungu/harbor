@@ -169,43 +169,73 @@ extension WeatherWorld {
         }
     }
 
-    /// Everything that moves: particles, snowballs and snowmen.
+    /// Everything that moves: particles, whatever the pointer carries, snowballs and snowmen.
     public func liveSprites(into out: inout [WeatherSprite]) {
-        for p in particles {
-            switch p.kind {
-            case .flake:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
-                                         color: Ink.faded(Ink.snow, 0.95), shape: .disc, a: 1))
-            case .puff:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
-                                         color: Ink.faded(Ink.snow, p.life * 1.6), shape: .disc, a: 1))
-            case .chunk:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size, color: Ink.snow,
-                                         shape: .ball))
-            case .leaf:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size * 0.5,
-                                         color: Ink.pick(Ink.leaves, p.tint), shape: .leaf, angle: p.angle))
-            case .petal:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size * 0.65,
-                                         color: Ink.pick(Ink.petals, p.tint), shape: .petal, angle: p.angle))
-            case .drop:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: 6, color: Ink.drop,
-                                         shape: .disc, angle: atan2(p.vx, -p.vy)))
-            case .splash:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
-                                         color: Ink.faded(p.tint == 1 ? Ink.froth : Ink.drop, p.life * 3), shape: .disc))
-            case .seed:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
-                                         color: Ink.faded(Ink.seed, min(1, p.life / 3)), shape: .seed, angle: p.angle))
-            case .firefly:
-                let pulse = 0.25 + 0.75 * max(0, sin(time * 2.4 + p.phase))
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size * 3.5, halfHeight: p.size * 3.5,
-                                         color: Ink.faded(Ink.firefly, pulse * min(1, p.life / 2)), shape: .glow))
-            case .bubble:
-                out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
-                                         color: Ink.faded(Ink.bubble, min(1, p.life)), shape: .bubble))
-            }
+        for p in particles { sprite(p, into: &out) }
+        if case .jar? = hold, !carried.isEmpty {
+            // Cupped hands, drawn as a faint glass jar around the fireflies.
+            out.append(WeatherSprite(x: grip.x, y: grip.y, halfWidth: 16, halfHeight: 14, color: Ink.faded(Ink.bubble, 0.7),
+                                     shape: .bubble))
         }
+        for p in carried { sprite(p, into: &out) }
+        balls(into: &out)
+    }
+
+    private func sprite(_ p: WeatherParticle, into out: inout [WeatherSprite]) {
+        switch p.kind {
+        case .flake:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
+                                     color: Ink.faded(Ink.snow, 0.95), shape: .disc, a: 1))
+        case .puff:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
+                                     color: Ink.faded(Ink.snow, p.life * 1.6), shape: .disc, a: 1))
+        case .chunk:
+            // A lopsided clod: a squashed body with a smaller lump on one side, both turning as it tumbles.
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size * 1.15, halfHeight: p.size * 0.85, color: Ink.snow,
+                                     shape: .ball, angle: p.angle))
+            if p.size > 2 {
+                out.append(WeatherSprite(x: p.x + cos(p.angle) * p.size * 0.8, y: p.y + sin(p.angle) * p.size * 0.8,
+                                         halfWidth: p.size * 0.6, halfHeight: p.size * 0.5, color: Ink.snow,
+                                         shape: .ball, angle: p.angle))
+            }
+        case .blossom:
+            out.append(WeatherSprite(x: p.x - sin(p.angle) * 4.5, y: p.y - cos(p.angle) * 4.5, halfWidth: 0.7,
+                                     halfHeight: 4.5, color: Ink.stem, shape: .rect, angle: -p.angle))
+            for k in 0..<5 {
+                let a = Double(k) / 5 * 2 * .pi + p.angle
+                out.append(WeatherSprite(x: p.x + cos(a) * p.size, y: p.y + sin(a) * p.size, halfWidth: p.size,
+                                         halfHeight: p.size, color: Ink.pick(Ink.blooms, p.tint), shape: .disc))
+            }
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size * 0.7, halfHeight: p.size * 0.7,
+                                     color: Ink.heart, shape: .disc))
+        case .leaf:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size * 0.5,
+                                     color: Ink.pick(Ink.leaves, p.tint), shape: .leaf, angle: p.angle))
+        case .petal:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size * 0.65,
+                                     color: Ink.pick(Ink.petals, p.tint), shape: .petal, angle: p.angle))
+        case .drop:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: 6, color: Ink.drop,
+                                     shape: .disc, angle: atan2(p.vx, -p.vy)))
+        case .splash:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
+                                     color: Ink.faded(p.tint == 1 ? Ink.froth : Ink.drop, p.life * 3), shape: .disc))
+        case .seed:
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size, halfHeight: p.size,
+                                     color: Ink.faded(Ink.seed, min(1, p.life / 3)), shape: .seed, angle: p.angle))
+        case .firefly:
+            let pulse = 0.25 + 0.75 * max(0, sin(time * 2.4 + p.phase))
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size * 3.5, halfHeight: p.size * 3.5,
+                                     color: Ink.faded(Ink.firefly, pulse * min(1, p.life / 2)), shape: .glow))
+        case .bubble:
+            // Big bubbles wobble more.
+            let wobble = sin(time * 7 + p.phase) * min(0.12, 0.02 + p.size / 400)
+            out.append(WeatherSprite(x: p.x, y: p.y, halfWidth: p.size * (1 + wobble), halfHeight: p.size * (1 - wobble),
+                                     color: Ink.faded(Ink.bubble, min(1, p.life)), shape: .bubble))
+        }
+    }
+
+    private func balls(into out: inout [WeatherSprite]) {
         for ball in balls {
             out.append(WeatherSprite(x: ball.x, y: ball.y, halfWidth: ball.r, halfHeight: ball.r, color: Ink.snow,
                                      shape: .ball))

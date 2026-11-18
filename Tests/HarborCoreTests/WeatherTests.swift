@@ -367,12 +367,18 @@ import Testing
         #expect(w.particles.filter { $0.kind == .leaf }.count >= 4)
     }
 
-    @Test func aPetNearBubblesAsksToHop() {
+    @Test func aPetNearBubblesGoesAfterThem() {
         var w = world(.summer)
         w.intensity = 0
         w.particles = [WeatherParticle(kind: .bubble, x: 360, y: 430, size: 10, life: 60)]
         let events = run(&w, seconds: 8, pets: [WeatherPet(id: "pup", x: 300, y: 500, vx: 0, vy: 0, unit: 32)])
-        #expect(events.contains { if case .nudge(let pet, let dx, _) = $0 { pet == "pup" && dx > 0 } else { false } })
+        #expect(events.contains {
+            switch $0 {
+            case .nudge(let pet, let dx, _): pet == "pup" && dx > 0
+            case .walk(let pet, let x): pet == "pup" && x > 300
+            default: false
+            }
+        })
     }
 
     // MARK: Drawing

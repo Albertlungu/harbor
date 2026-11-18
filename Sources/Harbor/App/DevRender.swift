@@ -11,6 +11,10 @@ enum DevRender {
             renderEffects(into: URL(fileURLWithPath: folder, isDirectory: true))
             return true
         }
+        if let folder = ProcessInfo.processInfo.environment["HARBOR_RENDER_WEATHER"] {
+            WeatherDevRender.render(into: URL(fileURLWithPath: folder, isDirectory: true))
+            return true
+        }
         guard let folder = ProcessInfo.processInfo.environment["HARBOR_RENDER_PET"] else { return false }
         let out = URL(fileURLWithPath: folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
