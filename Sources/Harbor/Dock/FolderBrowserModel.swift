@@ -35,6 +35,8 @@ final class FolderBrowserModel {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var selectAfterLoad: [URL] = []
     @ObservationIgnored private var keyMonitor: Any?
+    @ObservationIgnored private var keyObserver: NSObjectProtocol?
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
     @ObservationIgnored weak var window: NSWindow?
 
     var current: URL { history.current }
@@ -60,6 +62,10 @@ final class FolderBrowserModel {
         source = nil
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = nil
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        activeObserver = nil
     }
 
     private func show(_ url: URL) {
@@ -325,9 +331,40 @@ final class FolderBrowserModel {
         self.window = window
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window else { return event }
+            // Activation can make the dock's own panel key rather than the popover, so keys landing there while
+            // the popover is open are the popover's too.
+            guard let self, let mine = self.window, event.window === mine || event.window === mine.parent else { return event }
             return self.handleKey(event) ? nil : event
         }
+        // Becoming key hands focus to the window's first text field, the search box, which would swallow Finder's
+        // shortcuts such as Command-Delete; the files take focus back unless a search is under way.
+        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window,
+                                                             queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.focusFiles() }
+        }
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let window = self?.window, window.isVisible else { return }
+                window.makeKey()
+                self?.focusFiles()
+            }
+        }
+        focusFiles()
+    }
+
+    private func focusFiles() {
+        guard let window, query.isEmpty, renaming == nil, let content = window.contentView,
+              let files = Self.fileView(in: content) else { return }
+        if window.firstResponder !== files { window.makeFirstResponder(files) }
+    }
+
+    private static func fileView(in view: NSView) -> NSView? {
+        if !view.isHiddenOrHasHiddenAncestor, view is NSCollectionView || view is NSTableView || view is NSBrowser {
+            return view
+        }
+        for sub in view.subviews { if let found = fileView(in: sub) { return found } }
+        return nil
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {

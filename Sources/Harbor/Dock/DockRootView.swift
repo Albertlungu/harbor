@@ -227,6 +227,14 @@ struct DockBarLayout: View {
                         // Labels swap instantly; fading would briefly show two at once while gliding.
                         .transaction { $0.animation = nil }
                         .fixedSize()
+                        // Pinned by its near edge to the icon's far edge, so the name sits beside the icon, not on it.
+                        .alignmentGuide(labelAlignment.horizontal) { d in
+                            switch state.hugEdge {
+                            case .left: d[.leading]
+                            case .right: d[.trailing]
+                            default: d[HorizontalAlignment.center]
+                            }
+                        }
                         .offset(labelOffset(height: height, width: width))
                         .allowsHitTesting(false)
                 }
