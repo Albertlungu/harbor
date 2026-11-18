@@ -52,6 +52,8 @@ enum Tokens {
     enum Dock {
         static let indicatorSize: CGFloat = 4
         static let labelHeadroom: CGFloat = 30
+        /// Side docks show names beside the icons, so they need room for a whole name rather than a pill's height.
+        static let sideLabelRoom: CGFloat = 190
     }
 }
 
