@@ -34,11 +34,13 @@ final class WindowManager: NSObject, NSWindowDelegate {
         present(settings)
     }
 
+    /// The guided tour; on first launch it also sets up the first dock.
     func showOnboarding() {
         guard let model else { return }
         if onboarding == nil {
-            onboarding = makeWindow(title: "Welcome to Harbor", size: NSSize(width: 560, height: 520),
-                                    content: OnboardingView().environment(model).harborLook(), autosave: nil)
+            let firstRun = !model.store.settings.onboardingDone
+            onboarding = makeWindow(title: firstRun ? "Welcome to Harbor" : "Harbor Tour", size: NSSize(width: 560, height: 440),
+                                    content: OnboardingView(firstRun: firstRun).environment(model).harborLook(), autosave: nil)
             onboarding?.styleMask.remove(.resizable)
         }
         present(onboarding)

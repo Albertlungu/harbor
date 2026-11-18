@@ -35,6 +35,7 @@ struct MenuBarMenu: View {
         Divider()
 
         Button(WindowControl.isTrusted ? "Permissions…" : "Permissions Needed…") { model.windows.showPermissions() }
+        Button("Show Tour") { model.windows.showOnboarding() }
         Button("About Harbor") {
             NSApp.activate()
             NSApp.orderFrontStandardAboutPanel(nil)

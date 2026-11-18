@@ -21,7 +21,12 @@ struct HarborApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
-        .commands { EditCommands() }
+        .commands {
+            EditCommands()
+            CommandGroup(replacing: .help) {
+                Button("Show Tour") { delegate.model.windows.showOnboarding() }
+            }
+        }
     }
 
     /// Template glyph from the app bundle; nil under `swift run`, where resources are absent.

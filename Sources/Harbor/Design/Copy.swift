@@ -76,6 +76,64 @@ enum Copy {
              Line(title: "Maybe later", detail: "Take me to the Manager"))
     }
 
+    // MARK: Tour
+
+    static func tourAdd(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "Add apps, folders and widgets",
+                  detail: "Right-click a dock and choose Edit Dock, then drag apps and folders onto it from Finder and drag items to reorder them. Add Widget… in the same menu has a clock, battery, Trash and more."),
+             Line(title: "Fill it up",
+                  detail: "Right-click a dock, choose Edit Dock, and drag apps and folders in from Finder. Add Widget… in the same menu brings a clock, battery, Trash and friends."))
+    }
+
+    static func tourEdit(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "Right-click for more",
+                  detail: "The same menu has Keep Dock Shown, which stops an auto-hiding dock from sliding away, and Dock Settings… for size, style, position and screens."),
+             Line(title: "Right-click is your friend",
+                  detail: "Keep Dock Shown keeps an auto-hiding dock from wandering off, and Dock Settings… opens its style, position and screens."))
+    }
+
+    static func tourFolders(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "Folders open in place",
+                  detail: "Click a folder on a dock to browse it in a small Finder window. Switch between List and Icons, and drag files in or out."),
+             Line(title: "A tiny Finder in every folder",
+                  detail: "Click a folder to peek inside without leaving your work. Flip between List and Icons, and drag files in or out."))
+    }
+
+    static func tourPet(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "A dock pet",
+                  detail: "Add the Pet widget to a dock. Right-click it and choose Let it roam to send it across your desktop and windows; drag to pick it up and toss it. Pick a species in its settings."),
+             Line(title: "Adopt a pet",
+                  detail: "Add the Pet widget, then right-click it and choose Let it roam. It explores your desktop and windows; grab it to give it a toss. Nine species to choose from."))
+    }
+
+    static func tourWeather(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "Seasons and wallpapers",
+                  detail: "Desktop Weather lets snow, leaves or petals fall and settle on your windows; turn it on from the menu bar. Wallpapers… browses free pictures and can change them with the seasons."),
+             Line(title: "Bring the seasons in",
+                  detail: "Turn on Desktop Weather from the menu bar for snow or leaves that pile up on your windows. Wallpapers… finds a fresh picture, and can swap it each season."))
+    }
+
+    static func tourPermissions(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "Permissions, only when needed",
+                  detail: "Accessibility lets Harbor bring back a specific window and keep windows off your docks. Screen Recording, Automation and Bluetooth are asked for only when a feature needs them. Nothing leaves your Mac."),
+             Line(title: "Only what it needs",
+                  detail: "Accessibility helps Harbor bring back the exact window you want. Screen Recording, Automation and Bluetooth only come up when a feature asks. Everything stays on your Mac."))
+    }
+
+    static func tourMenu(_ playful: Bool) -> Line {
+        pick(playful,
+             Line(title: "Find everything in the menu bar",
+                  detail: "The Harbor icon in the menu bar opens the Manager, Settings, Wallpapers and this tour again (Show Tour)."),
+             Line(title: "You're all set",
+                  detail: "Everything lives behind the Harbor icon in the menu bar: the Manager, Settings, Wallpapers, and Show Tour if you want this again."))
+    }
+
     // MARK: Banners and confirmations
 
     static func saveFailed(_ error: String, _ playful: Bool) -> String {
