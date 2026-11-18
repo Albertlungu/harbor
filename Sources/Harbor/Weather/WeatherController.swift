@@ -499,7 +499,9 @@ final class WeatherController {
         let playing = holding != nil || shown.contains(where: \.playing)
         // Reading the window list costs a few milliseconds, so it is quick only while something is being
         // dragged; app switches, Space changes and wake ask for a reading straight away.
-        let interval = (now - lastDrag) / .seconds(1) < 0.5 ? 0.25 : 2.0
+        // While dragging the reading keeps up with the window so its pile drops as it leaves; otherwise twice a
+        // second is enough for closes and moves made without the pointer, and a mouse-up reads straight away.
+        let interval = (now - lastDrag) / .seconds(1) < 0.5 ? 0.05 : 0.5
         // A dock sliding away must drop its ledge at once, not at the next slow reading.
         if (now - lastSnapshot) / .seconds(1) >= interval || visibleBars().map(\.bar) != lastBars { snapshot() }
         if !shown.isEmpty { setClock(still ? .still : playing ? .play : .drift) }
@@ -683,6 +685,16 @@ final class WeatherController {
     private func installMonitors() {
         let handler: (NSEvent) -> Void = { [weak self] event in
             MainActor.assumeIsolated {
+                if event.type == .leftMouseUp, let self {
+                    // A click on a close button or the end of a drag usually changes a window; read now and again
+                    // once a closing window's fade-out has left the list.
+                    self.snapshot()
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(250))
+                        self?.snapshot()
+                    }
+                    return
+                }
                 if event.type == .leftMouseDragged, let self {
                     self.lastDrag = .now
                     if self.pace == .still { self.setClock(.drift) }
@@ -691,6 +703,8 @@ final class WeatherController {
             }
         }
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        let up = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp, handler: handler)
+        if let up { monitors.append(up) }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in handler(event); return event }) {
             monitors.append(local)

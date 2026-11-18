@@ -58,8 +58,13 @@ public struct WeatherLedge: Equatable, Sendable {
 
     public mutating func deposit(x: Double, amount: Double, cap: Double) {
         guard let i = index(x: x) else { return }
-        heights[i] = min(cap, heights[i] + amount)
-        mark(i, i)
+        // A flake settles over a little more than one column; landing on a single one grew needle-thin spikes.
+        let lo = max(0, i - 1), hi = min(count - 1, i + 1)
+        for j in lo...hi {
+            let share = j == i ? 0.5 : 0.25
+            heights[j] = min(cap, heights[j] + amount * share)
+        }
+        mark(lo, hi)
     }
 
     /// Wakes columns `lo...hi` so the next relaxations look at them and their neighbours.
@@ -71,8 +76,9 @@ public struct WeatherLedge: Equatable, Sendable {
     }
 
     /// How much steeper or shallower than the season's slope a column holds, from -1 to 1. Fixed by the
-    /// column's place on the shared grid, mixing a fine grain with a coarser one, so a pile settles into the
-    /// same lumps and shoulders every time instead of straight-sided heaps.
+    /// column's place on the shared grid and eased between knots a few columns apart, so a pile settles into
+    /// the same broad lumps and shoulders every time. Independent values per column made neighbours hold very
+    /// different slopes, which showed as sharp spikes.
     static func grain(_ column: Int) -> Double {
         func noise(_ n: Int) -> Double {
             var z = UInt64(bitPattern: Int64(n)) &* 0x9E37_79B9_7F4A_7C15
@@ -80,8 +86,12 @@ public struct WeatherLedge: Equatable, Sendable {
             z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
             return Double((z ^ (z >> 31)) >> 11) / Double(1 << 53) * 2 - 1
         }
-        let coarse = Int((Double(column) / 5).rounded(.down))
-        return noise(column) * 0.45 + noise(coarse &+ 0x5EED) * 0.55
+        let span = 8.0
+        let at = Double(column) / span
+        let knot = Int(at.rounded(.down))
+        let t = at - Double(knot)
+        let eased = t * t * (3 - 2 * t)
+        return noise(knot) * (1 - eased) + noise(knot + 1) * eased
     }
 
     /// Takes up to `amount` from each column in `x ± radius`; returns the area taken (depth × width).
@@ -132,6 +142,25 @@ public struct WeatherLedge: Equatable, Sendable {
             }
         }
         var spill = (left: 0.0, right: 0.0)
+        // An open end can't hold a wall: the pile thins toward it at a gentler slope than the rest and whatever
+        // stands above that line tips over the edge. Only the few columns the taper reaches are touched.
+        let taper = limit * 0.5
+        var reach = 0
+        while reach < count {
+            let cap = edgeHold + Double(reach) * taper
+            var trimmed = false
+            for i in [reach, count - 1 - reach] where heights[i] > cap {
+                let excess = (heights[i] - cap) * Self.column
+                if i < count / 2 { spill.left += excess } else { spill.right += excess }
+                heights[i] = cap
+                moved += excess
+                movedLo = min(movedLo, max(0, i - 1))
+                movedHi = max(movedHi, min(count - 1, i + 1))
+                trimmed = true
+            }
+            if !trimmed && cap > (heights.max() ?? 0) { break }
+            reach += 1
+        }
         if heights[0] > edgeHold {
             spill.left = (heights[0] - edgeHold) * Self.column
             heights[0] = edgeHold

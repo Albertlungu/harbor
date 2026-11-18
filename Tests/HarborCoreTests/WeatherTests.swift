@@ -383,13 +383,15 @@ import Testing
 
     // MARK: Drawing
 
-    @Test func aFlatPileIsOneQuad() {
+    @Test func aFlatPileIsOneBodyWithTaperedEnds() {
         var w = world(.winter)
         bury(&w, depth: 4)
         var sprites: [WeatherSprite] = []
         w.pileSprites(into: &sprites)
-        #expect(sprites.count == 1)
-        #expect(sprites[0].rect.w == 2)
+        // A ramp down to each end of the ledge and one quad for the flat middle, never a wall at the ends.
+        #expect(sprites.count == 3)
+        #expect(sprites[0].params.z < 0.01 && sprites[2].params.w < 0.01)
+        #expect(sprites[1].rect.z > sprites[0].rect.z)
     }
 
     @Test func spriteLayoutMatchesTheShader() {
