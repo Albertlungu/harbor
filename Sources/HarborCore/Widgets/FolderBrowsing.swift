@@ -26,6 +26,10 @@ public struct FolderEntry: Hashable, Sendable {
         self.lastOpened = lastOpened
     }
 
+    /// Finder's Date Added, which falls back to the creation date for items without one, such as
+    /// files on volumes that don't record when they were added.
+    public var dateAdded: Date? { added ?? created }
+
     /// Search-field match: ignores case and accents, like Finder's name filter.
     public func matches(_ query: String) -> Bool {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -88,10 +92,12 @@ extension FolderOptions {
 }
 
 public enum FolderOrdering {
+    /// `foldersFirst` only applies to the name sort, like Finder's "Keep folders on top when sorting
+    /// by name": by date or size the newest or largest item leads, folder or not.
     public static func sorted(_ entries: [FolderEntry], by sort: FolderSort, ascending: Bool,
                               foldersFirst: Bool) -> [FolderEntry] {
         entries.sorted { a, b in
-            if foldersFirst, a.isFolder != b.isFolder { return a.isFolder }
+            if foldersFirst, sort == .name, a.isFolder != b.isFolder { return a.isFolder }
             switch compare(a, b, by: sort) {
             case .orderedAscending: return ascending
             case .orderedDescending: return !ascending
@@ -109,7 +115,7 @@ public enum FolderOrdering {
         case .name: byName(a, b)
         case .kind: a.kind.localizedStandardCompare(b.kind)
         case .dateLastOpened: order(a.lastOpened, b.lastOpened)
-        case .dateAdded: order(a.added, b.added)
+        case .dateAdded: order(a.dateAdded, b.dateAdded)
         case .dateModified: order(a.modified, b.modified)
         case .dateCreated: order(a.created, b.created)
         case .size: order(a.size, b.size)

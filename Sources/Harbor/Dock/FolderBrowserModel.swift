@@ -418,6 +418,8 @@ final class FolderBrowserModel {
         descending.state = options.ascending ? .off : .on
         let folders = action("Folders First") { [weak self] in self?.updateOptions { $0.foldersFirst.toggle() } }
         folders.state = options.foldersFirst ? .on : .off
+        // Only the name sort keeps folders on top; menu autoenabling greys out an item without an action.
+        if options.sort != .name { folders.action = nil }
         items += [ascending, descending, .separator(), folders]
         return items
     }

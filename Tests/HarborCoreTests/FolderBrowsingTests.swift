@@ -6,9 +6,11 @@ import Testing
     private let t0 = Date(timeIntervalSince1970: 1_000)
 
     private func entry(_ name: String, folder: Bool = false, size: Int64? = nil, kind: String = "",
-                       modified: Double? = nil, added: Double? = nil, opened: Double? = nil) -> FolderEntry {
+                       modified: Double? = nil, created: Double? = nil, added: Double? = nil,
+                       opened: Double? = nil) -> FolderEntry {
         FolderEntry(url: URL(fileURLWithPath: "/tmp/\(name)"), name: name, isFolder: folder, size: size, kind: kind,
-                    modified: modified.map { t0.addingTimeInterval($0) }, added: added.map { t0.addingTimeInterval($0) },
+                    modified: modified.map { t0.addingTimeInterval($0) }, created: created.map { t0.addingTimeInterval($0) },
+                    added: added.map { t0.addingTimeInterval($0) },
                     lastOpened: opened.map { t0.addingTimeInterval($0) })
     }
 
@@ -40,6 +42,28 @@ import Testing
         #expect(names(FolderOrdering.sorted(list, by: .kind, ascending: true, foldersFirst: false)) == ["b", "c", "a"])
         #expect(names(FolderOrdering.sorted(list, by: .dateAdded, ascending: false, foldersFirst: false)) == ["a", "c", "b"])
         #expect(names(FolderOrdering.sorted(list, by: .dateLastOpened, ascending: false, foldersFirst: false)) == ["c", "a", "b"])
+    }
+
+    @Test func dateAddedFallsBackToCreationAndRanksMissingDatesLowest() {
+        // "copied" has no added date, as on volumes that don't record one, so its creation date stands in.
+        let list = [entry("old", created: 0, added: 2), entry("copied", created: 5), entry("none"),
+                    entry("new", created: 1, added: 8), entry("tie", added: 5)]
+        #expect(names(FolderOrdering.sorted(list, by: .dateAdded, ascending: false, foldersFirst: false))
+            == ["new", "copied", "tie", "old", "none"])
+        #expect(names(FolderOrdering.sorted(list, by: .dateAdded, ascending: true, foldersFirst: false))
+            == ["none", "old", "copied", "tie", "new"])
+        #expect(entry("x", created: 3).dateAdded == t0.addingTimeInterval(3))
+        #expect(entry("x").dateAdded == nil)
+    }
+
+    @Test func foldersOnlyStayOnTopWhenSortingByName() {
+        let list = [entry("file", added: 9), entry("Folder", folder: true, added: 1), entry("mid", added: 5)]
+        #expect(names(FolderOrdering.sorted(list, by: .dateAdded, ascending: false, foldersFirst: true)) == ["file", "mid", "Folder"])
+        #expect(names(FolderOrdering.sorted(list, by: .name, ascending: true, foldersFirst: true)) == ["Folder", "file", "mid"])
+        var options = FolderOptions()
+        options.sort = .dateAdded
+        #expect(options.foldersFirst && !options.ascending)
+        #expect(names(FolderOrdering.sorted(list, options: options)) == ["file", "mid", "Folder"])
     }
 
     @Test func ascendingMapsOntoReverseRelativeToNaturalDirection() {

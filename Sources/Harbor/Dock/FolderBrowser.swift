@@ -148,6 +148,7 @@ private struct FolderToolbar: View {
                 Divider()
                 Toggle("Folders First", isOn: Binding(get: { model.options.foldersFirst },
                                                       set: { on in model.updateOptions { $0.foldersFirst = on } }))
+                    .disabled(model.options.sort != .name)
                 Toggle("Show Hidden Files", isOn: Binding(get: { model.options.showHidden },
                                                           set: { on in model.updateOptions { $0.showHidden = on } }))
             } label: {
