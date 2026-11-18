@@ -453,7 +453,7 @@ final class FolderListCoordinator: NSObject, NSTableViewDataSource, NSTableViewD
         case .kind: entry.kind
         case .size: entry.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "--"
         case .dateModified: entry.modified?.formatted(Self.dateFormat) ?? "--"
-        case .dateAdded: entry.added?.formatted(Self.dateFormat) ?? "--"
+        case .dateAdded: entry.dateAdded?.formatted(Self.dateFormat) ?? "--"
         case .dateCreated: entry.created?.formatted(Self.dateFormat) ?? "--"
         case .dateLastOpened: entry.lastOpened?.formatted(Self.dateFormat) ?? "--"
         }

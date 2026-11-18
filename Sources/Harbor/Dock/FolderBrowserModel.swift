@@ -144,6 +144,13 @@ final class FolderBrowserModel {
         }
     }
 
+    /// Saves a hand-picked popover size; nothing listed changes, so the entries aren't re-sorted.
+    func saveSize(_ size: CGSize) {
+        options.browserWidth = Double(size.width.rounded())
+        options.browserHeight = Double(size.height.rounded())
+        persist(options)
+    }
+
     /// Takes options edited elsewhere, such as the item's settings sheet.
     func adopt(_ new: FolderOptions) {
         guard new != options else { return }
@@ -418,6 +425,8 @@ final class FolderBrowserModel {
         descending.state = options.ascending ? .off : .on
         let folders = action("Folders First") { [weak self] in self?.updateOptions { $0.foldersFirst.toggle() } }
         folders.state = options.foldersFirst ? .on : .off
+        // Only the name sort keeps folders on top; menu autoenabling greys out an item without an action.
+        if options.sort != .name { folders.action = nil }
         items += [ascending, descending, .separator(), folders]
         return items
     }

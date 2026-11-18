@@ -126,7 +126,11 @@ private struct ItemOptionsForm: View {
                 ValueSlider(title: "Icon size", value: field(\.folder.iconSize, default: 48), range: 24...96, unit: " pt")
                 Toggle("Show file names", isOn: field(\.folder.showNames, default: true))
             }
-            Picker("Sort by", selection: field(\.folder.sort, default: .name)) {
+            // A new key starts in its natural direction, as it does from the browser's Sort menu, so
+            // Date Added doesn't inherit a reversed name sort and list oldest first.
+            Picker("Sort by", selection: Binding(
+                get: { model.store.dock(dockID)?.items.first { $0.id == item.id }?.folder.sort ?? .name },
+                set: { key in model.store.updateItem(item.id, in: dockID) { $0.folder.sort = key; $0.folder.reverse = false } })) {
                 ForEach(FolderSort.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             Picker("Order", selection: field(\.folder.ascending, default: true)) {
@@ -134,10 +138,25 @@ private struct ItemOptionsForm: View {
                 Text("Descending").tag(false)
             }
             .pickerStyle(.segmented)
-            Toggle("Folders first", isOn: field(\.folder.foldersFirst, default: true))
+            Toggle("Keep folders on top when sorting by name", isOn: field(\.folder.foldersFirst, default: true))
             Toggle("Show hidden files", isOn: field(\.folder.showHidden, default: false))
             Toggle("Show previews", isOn: field(\.folder.showPreviews, default: true))
             Toggle("Close after dragging a file out", isOn: field(\.folder.closeAfterDragOut, default: false))
+            LabeledContent("Size") {
+                if let width = item.folder.browserWidth, let height = item.folder.browserHeight {
+                    HStack {
+                        Text("\(Int(width)) × \(Int(height)) pt")
+                        Button("Reset") {
+                            model.store.updateItem(item.id, in: dockID) {
+                                $0.folder.browserWidth = nil
+                                $0.folder.browserHeight = nil
+                            }
+                        }
+                    }
+                } else {
+                    Text("Default. Drag the browser's edges to resize it.").foregroundStyle(Tokens.textMuted)
+                }
+            }
         }
     }
 
