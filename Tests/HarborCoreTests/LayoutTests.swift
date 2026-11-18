@@ -117,4 +117,21 @@ import Testing
         d.screens.showOnAllScreens = true
         #expect(ScreenResolver.screens(for: d, connected: [ext, main]).count == 2)
     }
+
+    /// Sleep and a closed lid without an external display briefly report no screens at all.
+    @Test func resolverWithNoScreensPlacesNothing() {
+        var d = dock()
+        #expect(ScreenResolver.screens(for: d, connected: []).isEmpty)
+        d.screens.showOnAllScreens = true
+        #expect(ScreenResolver.screens(for: d, connected: []).isEmpty)
+        d.screens.assignedScreenIDs = ["e"]
+        #expect(ScreenResolver.screens(for: d, connected: []).isEmpty)
+    }
+
+    /// Screens with no main flag, as during a display reconfiguration, still get the dock.
+    @Test func resolverFallsBackToFirstScreenWithoutAMain() {
+        let a = ConnectedScreen(id: "a", name: "A", geometry: screen, isMain: false)
+        let b = ConnectedScreen(id: "b", name: "B", geometry: screen, isMain: false)
+        #expect(ScreenResolver.screens(for: dock(), connected: [a, b]).map(\.id) == ["a"])
+    }
 }
