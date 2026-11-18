@@ -142,6 +142,21 @@ private struct ItemOptionsForm: View {
             Toggle("Show hidden files", isOn: field(\.folder.showHidden, default: false))
             Toggle("Show previews", isOn: field(\.folder.showPreviews, default: true))
             Toggle("Close after dragging a file out", isOn: field(\.folder.closeAfterDragOut, default: false))
+            LabeledContent("Size") {
+                if let width = item.folder.browserWidth, let height = item.folder.browserHeight {
+                    HStack {
+                        Text("\(Int(width)) × \(Int(height)) pt")
+                        Button("Reset") {
+                            model.store.updateItem(item.id, in: dockID) {
+                                $0.folder.browserWidth = nil
+                                $0.folder.browserHeight = nil
+                            }
+                        }
+                    }
+                } else {
+                    Text("Default. Drag the browser's edges to resize it.").foregroundStyle(Tokens.textMuted)
+                }
+            }
         }
     }
 

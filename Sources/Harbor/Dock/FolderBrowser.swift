@@ -6,26 +6,45 @@ import SwiftUI
 /// over one pinned folder, with view and sort saved on the dock item.
 struct FolderBrowser: View {
     let onClose: () -> Void
+    /// The popover's arrow edge, which tells the resize handles which way the popover grows.
+    let arrowEdge: Edge
     @State private var model: FolderBrowserModel
     private let options: FolderOptions
+    /// The size while a resize handle is dragged; saved on the item when the drag ends.
+    @State private var dragSize: CGSize?
+    @State private var measured: CGSize = .zero
 
-    init(folder: URL, options: FolderOptions, save: @escaping (FolderOptions) -> Void, onClose: @escaping () -> Void) {
+    init(folder: URL, options: FolderOptions, arrowEdge: Edge, save: @escaping (FolderOptions) -> Void,
+         onClose: @escaping () -> Void) {
         self.onClose = onClose
+        self.arrowEdge = arrowEdge
         self.options = options
         _model = State(initialValue: FolderBrowserModel(root: folder, options: options, persist: save, close: onClose))
     }
 
     var body: some View {
+        let size = self.size
         VStack(spacing: 0) {
             FolderToolbar(model: model)
             Divider()
             content
-                .frame(height: contentHeight)
+                .frame(height: size == nil ? contentHeight : nil)
             Divider()
             statusBar
         }
         // A definite size: popovers in a borderless panel won't present content that sizes to zero.
-        .frame(width: width)
+        .frame(width: size?.width ?? width, height: size?.height)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { measured = $0 }
+        .overlay {
+            if model.options.layout != .fan {
+                ResizeHandles(arrowEdge: arrowEdge, current: { measured },
+                              resize: { dragSize = $0 },
+                              finish: {
+                                  if let dragSize { model.saveSize(dragSize) }
+                                  dragSize = nil
+                              })
+            }
+        }
         .background(FolderWindowHook(model: model))
         .onAppear { model.start() }
         .onDisappear { model.stop() }
@@ -91,6 +110,113 @@ struct FolderBrowser: View {
 
     private var contentHeight: CGFloat {
         model.options.layout == .gallery ? 420 : 360
+    }
+
+    /// The hand-picked size, if any; the fan keeps its own fixed size.
+    private var size: CGSize? {
+        if let dragSize { return dragSize }
+        guard model.options.layout != .fan, let width = model.options.browserWidth,
+              let height = model.options.browserHeight else { return nil }
+        return CGSize(width: width, height: height)
+    }
+}
+
+/// Invisible strips and corners along the popover's edges that resize it like a window, except on
+/// the side facing the dock, where the arrow keeps it attached to its item.
+private struct ResizeHandles: View {
+    let arrowEdge: Edge
+    let current: () -> CGSize
+    let resize: (CGSize) -> Void
+    let finish: () -> Void
+    @State private var start: (mouse: NSPoint, size: CGSize)?
+
+    private struct Spot: Hashable {
+        var vertical: ScreenEdge?
+        var horizontal: ScreenEdge?
+    }
+
+    /// The popover grows toward its arrow edge: one above a bottom dock grows upward.
+    private var far: ScreenEdge {
+        switch arrowEdge {
+        case .top: .top
+        case .bottom: .bottom
+        case .leading: .left
+        case .trailing: .right
+        }
+    }
+
+    private var pinned: ScreenEdge {
+        switch far {
+        case .top: .bottom
+        case .bottom: .top
+        case .left: .right
+        case .right: .left
+        }
+    }
+
+    private var spots: [Spot] {
+        var spots: [Spot] = []
+        for vertical in [ScreenEdge.top, .bottom, nil] {
+            for horizontal in [ScreenEdge.left, .right, nil] where vertical != nil || horizontal != nil {
+                if vertical != pinned, horizontal != pinned { spots.append(Spot(vertical: vertical, horizontal: horizontal)) }
+            }
+        }
+        return spots
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(spots, id: \.self) { spot in
+                let corner = spot.vertical != nil && spot.horizontal != nil
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: spot.horizontal == nil ? nil : (corner ? 14 : 6),
+                           height: spot.vertical == nil ? nil : (corner ? 14 : 6))
+                    .pointerStyle(.frameResize(position: position(spot)))
+                    .gesture(drag(spot))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(spot))
+            }
+        }
+    }
+
+    /// Tracks the pointer in screen coordinates: the popover's window moves as it resizes, so
+    /// view-local drag translations would drift.
+    private func drag(_ spot: Spot) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                let mouse = NSEvent.mouseLocation
+                let origin = start ?? (mouse, current())
+                if start == nil { start = origin }
+                let limit = (NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main)
+                    .map { CGSize(width: $0.visibleFrame.width - 40, height: $0.visibleFrame.height - 80) } ?? .zero
+                let translation = CGSize(width: mouse.x - origin.mouse.x, height: origin.mouse.y - mouse.y)
+                guard translation != .zero else { return }
+                resize(FolderBrowserResize.size(from: origin.size, translation: translation, vertical: spot.vertical,
+                                                horizontal: spot.horizontal, growsToward: far, limit: limit))
+            }
+            .onEnded { _ in
+                start = nil
+                finish()
+            }
+    }
+
+    private func alignment(_ spot: Spot) -> Alignment {
+        let h: HorizontalAlignment = spot.horizontal == .left ? .leading : (spot.horizontal == .right ? .trailing : .center)
+        let v: VerticalAlignment = spot.vertical == .top ? .top : (spot.vertical == .bottom ? .bottom : .center)
+        return Alignment(horizontal: h, vertical: v)
+    }
+
+    private func position(_ spot: Spot) -> FrameResizePosition {
+        switch (spot.vertical, spot.horizontal) {
+        case (.top, .left): .topLeading
+        case (.top, .right): .topTrailing
+        case (.bottom, .left): .bottomLeading
+        case (.bottom, .right): .bottomTrailing
+        case (.top, _): .top
+        case (.bottom, _): .bottom
+        case (_, .left): .leading
+        default: .trailing
+        }
     }
 }
 

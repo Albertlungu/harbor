@@ -137,6 +137,28 @@ public enum FolderOrdering {
     }
 }
 
+/// Resizing the browser popover by its edges. The popover stays pinned to its dock item on the side
+/// facing the dock: it grows away from the dock along that axis and evenly around the arrow across
+/// it, so the far edge follows the pointer one to one while a side edge needs twice the size change.
+public enum FolderBrowserResize {
+    public static let minimum = CGSize(width: 360, height: 220)
+
+    /// The size after dragging the handle on the `vertical` and/or `horizontal` edge by `translation`
+    /// (y pointing down), for a popover that grows toward `far`, kept between `minimum` and `limit`.
+    public static func size(from start: CGSize, translation: CGSize, vertical: ScreenEdge?, horizontal: ScreenEdge?,
+                            growsToward far: ScreenEdge, limit: CGSize) -> CGSize {
+        func factor(_ edge: ScreenEdge?) -> CGFloat {
+            guard let edge else { return 0 }
+            let sign: CGFloat = edge == .top || edge == .left ? -1 : 1
+            return sign * (edge == far ? 1 : 2)
+        }
+        let width = start.width + translation.width * factor(horizontal)
+        let height = start.height + translation.height * factor(vertical)
+        return CGSize(width: min(max(width, minimum.width), max(limit.width, minimum.width)),
+                      height: min(max(height, minimum.height), max(limit.height, minimum.height)))
+    }
+}
+
 /// Back and forward through the folders visited in one browser.
 public struct FolderHistory: Sendable {
     public private(set) var current: URL

@@ -37,7 +37,7 @@ struct DockSlotView: View {
             .modifier(EditDragModifier(slot: slot, dock: dock, editing: editing))
             .popover(isPresented: $showFolder, arrowEdge: popoverEdge) {
                 if let item = slot.item, let url = item.url {
-                    FolderBrowser(folder: url, options: item.folder,
+                    FolderBrowser(folder: url, options: item.folder, arrowEdge: popoverEdge,
                                   save: { options in model.store.updateItem(item.id, in: dock.id) { $0.folder = options } },
                                   onClose: { showFolder = false })
                         .environment(model)

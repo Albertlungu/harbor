@@ -144,6 +144,13 @@ final class FolderBrowserModel {
         }
     }
 
+    /// Saves a hand-picked popover size; nothing listed changes, so the entries aren't re-sorted.
+    func saveSize(_ size: CGSize) {
+        options.browserWidth = Double(size.width.rounded())
+        options.browserHeight = Double(size.height.rounded())
+        persist(options)
+    }
+
     /// Takes options edited elsewhere, such as the item's settings sheet.
     func adopt(_ new: FolderOptions) {
         guard new != options else { return }

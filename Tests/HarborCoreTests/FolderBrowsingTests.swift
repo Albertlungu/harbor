@@ -66,6 +66,41 @@ import Testing
         #expect(names(FolderOrdering.sorted(list, options: options)) == ["file", "mid", "Folder"])
     }
 
+    @Test func resizeMovesTheFarEdgeOneToOneAndSideEdgesByHalf() {
+        let start = CGSize(width: 600, height: 400)
+        let limit = CGSize(width: 2000, height: 1000)
+        // Above a bottom dock: dragging the top edge up 50 grows 50; the right edge right 50 grows 100.
+        #expect(FolderBrowserResize.size(from: start, translation: CGSize(width: 0, height: -50), vertical: .top,
+                                         horizontal: nil, growsToward: .top, limit: limit) == CGSize(width: 600, height: 450))
+        #expect(FolderBrowserResize.size(from: start, translation: CGSize(width: 50, height: 0), vertical: nil,
+                                         horizontal: .right, growsToward: .top, limit: limit) == CGSize(width: 700, height: 400))
+        #expect(FolderBrowserResize.size(from: start, translation: CGSize(width: 50, height: -20), vertical: .top,
+                                         horizontal: .left, growsToward: .top, limit: limit) == CGSize(width: 500, height: 420))
+        // Beside a left dock the popover grows rightward and evenly up and down.
+        #expect(FolderBrowserResize.size(from: start, translation: CGSize(width: 30, height: 10), vertical: .bottom,
+                                         horizontal: .right, growsToward: .right, limit: limit) == CGSize(width: 630, height: 420))
+    }
+
+    @Test func resizeStaysBetweenTheMinimumAndTheScreen() {
+        let start = CGSize(width: 600, height: 400)
+        let small = FolderBrowserResize.size(from: start, translation: CGSize(width: -900, height: 900), vertical: .top,
+                                             horizontal: .right, growsToward: .top, limit: CGSize(width: 800, height: 700))
+        #expect(small == FolderBrowserResize.minimum)
+        let large = FolderBrowserResize.size(from: start, translation: CGSize(width: 900, height: -900), vertical: .top,
+                                             horizontal: .right, growsToward: .top, limit: CGSize(width: 800, height: 700))
+        #expect(large == CGSize(width: 800, height: 700))
+    }
+
+    @Test func browserSizeRoundTripsAndOldConfigsHaveNone() throws {
+        let old = try JSONDecoder().decode(FolderOptions.self, from: Data(#"{"layout":"list"}"#.utf8))
+        #expect(old.browserWidth == nil && old.browserHeight == nil)
+        var options = FolderOptions()
+        options.browserWidth = 720
+        options.browserHeight = 480
+        let round = try JSONDecoder().decode(FolderOptions.self, from: JSONEncoder().encode(options))
+        #expect(round.browserWidth == 720 && round.browserHeight == 480)
+    }
+
     @Test func ascendingMapsOntoReverseRelativeToNaturalDirection() {
         var options = FolderOptions()
         #expect(options.sort == .name && options.ascending)

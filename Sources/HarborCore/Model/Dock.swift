@@ -80,6 +80,9 @@ public struct FolderOptions: Codable, Hashable, Sendable {
     public var showPreviews = true
     public var closeAfterDragOut = false
     public var openWithApp: String? = nil
+    /// The browser popover's size once resized by hand; nil keeps each view's default size.
+    public var browserWidth: Double? = nil
+    public var browserHeight: Double? = nil
 
     public init() {}
 
@@ -98,6 +101,8 @@ public struct FolderOptions: Codable, Hashable, Sendable {
         showPreviews = c(.showPreviews, d.showPreviews)
         closeAfterDragOut = c(.closeAfterDragOut, d.closeAfterDragOut)
         openWithApp = c(.openWithApp, d.openWithApp)
+        browserWidth = c(.browserWidth, d.browserWidth)
+        browserHeight = c(.browserHeight, d.browserHeight)
     }
 }
 
