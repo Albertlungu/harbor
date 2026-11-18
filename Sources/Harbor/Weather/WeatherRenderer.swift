@@ -3,18 +3,19 @@ import HarborCore
 import Metal
 import QuartzCore
 
-/// Draws weather sprites into a transparent Metal layer: one instanced draw call per frame.
-@MainActor
-final class WeatherRenderer {
+/// Draws weather sprites into a transparent Metal layer: one instanced draw call per frame. Configured on the
+/// main thread; `draw` runs on the weather thread.
+final class WeatherRenderer: @unchecked Sendable {
     private struct Shared {
-        let device: MTLDevice
         let queue: MTLCommandQueue
         let pipeline: MTLRenderPipelineState
     }
 
-    // Compiled once and shared by every screen's layer.
+    static let device = MTLCreateSystemDefaultDevice()
+
+    // Compiled once and shared by every screen's layer, on the weather thread so the main thread never waits.
     private static let shared: Shared? = {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
+        guard let device, let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil) else { return nil }
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = library.makeFunction(name: "weatherVertex")
@@ -27,58 +28,89 @@ final class WeatherRenderer {
         attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         guard let pipeline = try? device.makeRenderPipelineState(descriptor: descriptor) else { return nil }
-        return Shared(device: device, queue: queue, pipeline: pipeline)
+        return Shared(queue: queue, pipeline: pipeline)
     }()
 
     let layer = CAMetalLayer()
-    private var buffer: MTLBuffer?
-    private var drewSomething = true
 
-    init?() {
-        guard let shared = Self.shared else { return nil }
-        layer.device = shared.device
+    private let lock = NSLock()
+    /// Guarded by `lock`: the screen's size in points, set on the main thread.
+    private var viewport = CGSize(width: 1, height: 1)
+    /// Guarded by `lock`: a digest of the sprites last presented. Every present makes the window server
+    /// recomposite the whole screen, so a frame identical to the one showing is skipped.
+    private var shown: Int?
+
+    // Weather thread only. Three buffers so the CPU never writes one the GPU may still be reading.
+    private var buffers: [MTLBuffer?] = [nil, nil, nil]
+    private var bufferIndex = 0
+    private let inFlight = DispatchSemaphore(value: 3)
+
+    init() {
+        layer.device = Self.device
         layer.pixelFormat = .bgra8Unorm
         layer.isOpaque = false
         layer.framebufferOnly = true
         // Two drawables are enough at 30 fps and keep memory down on big screens.
         layer.maximumDrawableCount = 2
+        // A drawable the window server is slow to hand back costs a skipped frame, not a stuck thread.
+        layer.allowsNextDrawableTimeout = true
         layer.presentsWithTransaction = false
     }
 
+    /// Main thread.
     func resize(points: CGSize, scale: CGFloat) {
         layer.contentsScale = scale
         let pixels = CGSize(width: points.width * scale, height: points.height * scale)
-        if layer.drawableSize != pixels { layer.drawableSize = pixels }
+        lock.withLock {
+            if layer.drawableSize != pixels {
+                layer.drawableSize = pixels
+                shown = nil
+            }
+            viewport = points
+        }
     }
 
-    /// Draws `sprites` over a cleared frame. An empty frame after an empty frame is skipped entirely.
-    func draw(_ sprites: [WeatherSprite], viewport: CGSize) {
-        guard let shared = Self.shared else { return }
-        if sprites.isEmpty, !drewSomething { return }
-        drewSomething = !sprites.isEmpty
+    /// Draws `sprites` over a cleared frame, unless they are exactly what is already showing. Weather thread.
+    func draw(_ sprites: [WeatherSprite]) {
+        guard let shared = Self.shared, let device = Self.device else { return }
+        var hasher = Hasher()
+        hasher.combine(sprites.count)
+        sprites.withUnsafeBytes { hasher.combine(bytes: $0) }
+        let digest = hasher.finalize()
+        let viewport: CGSize? = lock.withLock { digest == shown ? nil : self.viewport }
+        guard let viewport else { return }
         let bytes = max(1, sprites.count) * MemoryLayout<WeatherSprite>.stride
-        if (buffer?.length ?? 0) < bytes {
-            buffer = shared.device.makeBuffer(length: bytes * 2, options: .storageModeShared)
+        inFlight.wait()
+        bufferIndex = (bufferIndex + 1) % buffers.count
+        if (buffers[bufferIndex]?.length ?? 0) < bytes {
+            buffers[bufferIndex] = device.makeBuffer(length: bytes * 2, options: .storageModeShared)
         }
-        guard let buffer, let drawable = layer.nextDrawable(),
-              let commands = shared.queue.makeCommandBuffer() else { return }
+        guard let buffer = buffers[bufferIndex], let drawable = layer.nextDrawable(),
+              let commands = shared.queue.makeCommandBuffer() else {
+            inFlight.signal()
+            return
+        }
+        let semaphore = inFlight
+        commands.addCompletedHandler { _ in semaphore.signal() }
         sprites.withUnsafeBytes { buffer.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = drawable.texture
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
-        guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return }
-        if !sprites.isEmpty {
-            var view = SIMD2<Float>(Float(viewport.width), Float(viewport.height))
-            encoder.setRenderPipelineState(shared.pipeline)
-            encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-            encoder.setVertexBytes(&view, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: sprites.count)
+        if let encoder = commands.makeRenderCommandEncoder(descriptor: pass) {
+            if !sprites.isEmpty {
+                var view = SIMD2<Float>(Float(viewport.width), Float(viewport.height))
+                encoder.setRenderPipelineState(shared.pipeline)
+                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+                encoder.setVertexBytes(&view, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: sprites.count)
+            }
+            encoder.endEncoding()
         }
-        encoder.endEncoding()
         commands.present(drawable)
         commands.commit()
+        lock.withLock { shown = digest }
     }
 
     private static let shaderSource = """

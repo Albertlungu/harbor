@@ -198,6 +198,24 @@ public struct WeatherWorld: Sendable {
     /// Replaces the ledges with a new reading of the screen. Piles on ledges that are gone fall as chunks
     /// unless `quietly` (a Space switch, where the windows are only out of sight), and balls whose ground is
     /// gone start to fall.
+    /// Windows report square frames but are drawn with round corners about this big.
+    public static let windowCornerRadius = 20.0
+
+    /// Pulls window ledges back from the corners of the windows they top, so snow doesn't hang in the air
+    /// beside the curve. An end cut short by another window isn't at a corner and stays put.
+    public static func roundingCorners(_ surfaces: [RoamSurface], windows: [CGRect]) -> [RoamSurface] {
+        let r = windowCornerRadius
+        return surfaces.compactMap { surface in
+            guard surface.kind == .window else { return surface }
+            var s = surface
+            for w in windows where abs(w.maxY - s.y) < 0.5 {
+                if abs(s.minX - w.minX) < 0.5 { s.minX += r }
+                if abs(s.maxX - w.maxX) < 0.5 { s.maxX -= r }
+            }
+            return s.maxX > s.minX ? s : nil
+        }
+    }
+
     public mutating func setSurfaces(_ surfaces: [RoamSurface], quietly: Bool = false) {
         var next = surfaces.filter { $0.kind != .menuBar }
             .map { WeatherLedge(y: $0.y, minX: $0.minX, maxX: $0.maxX) }
