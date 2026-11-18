@@ -35,11 +35,25 @@ struct HarborApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor lazy var model = AppModel()
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             if DevRender.runIfRequested() { NSApp.terminate(nil); return }
             model.start()
+        }
+        quitCleanlyOnSignals()
+    }
+
+    /// `kill`, `killall Harbor` and a closing terminal end the process without the normal quit path,
+    /// which would leave the macOS Dock hidden and the last edits unsaved; route them through it.
+    private func quitCleanlyOnSignals() {
+        for sig in [SIGTERM, SIGINT, SIGHUP] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { MainActor.assumeIsolated { NSApp.terminate(nil) } }
+            source.resume()
+            signalSources.append(source)
         }
     }
 

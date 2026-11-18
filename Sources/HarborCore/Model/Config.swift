@@ -240,6 +240,15 @@ public struct Config: Codable, Hashable, Sendable {
 
     public init() {}
 
+    /// The config a new person starts with. The animated desktop weather keeps the GPU and
+    /// WindowServer busy, so it waits to be turned on in Settings; configs that already exist
+    /// keep whatever they say.
+    public static var firstRun: Config {
+        var config = Config()
+        config.settings.weather.enabled = false
+        return config
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = c(.schemaVersion, 1)

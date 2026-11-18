@@ -71,11 +71,15 @@ public struct ConfigFile: Sendable {
         try JSONEncoder.harbor.encode(config)
     }
 
-    /// Loads the configuration. A missing file gives an empty config; a damaged one
+    /// Loads the configuration. A missing file gives a first-run config; a damaged one
     /// falls back to the newest snapshot that still decodes.
     public func load() -> (config: Config, recovered: Bool) {
-        guard let data = try? Data(contentsOf: configURL) else { return (Config(), false) }
+        guard let data = try? Data(contentsOf: configURL) else { return (Config.firstRun, false) }
         if let config = try? Self.decode(data) { return (config, false) }
+        // The next save overwrites config.json, so the unreadable file (which may be one written
+        // by a newer Harbor) is kept beside it for the person to recover by hand.
+        let kept = directory.appendingPathComponent("config.damaged-\(Int(Date().timeIntervalSince1970)).json")
+        try? FileManager.default.copyItem(at: configURL, to: kept)
         for snapshot in snapshots() {
             if let data = try? Data(contentsOf: snapshot.url), let config = try? Self.decode(data) {
                 return (config, true)

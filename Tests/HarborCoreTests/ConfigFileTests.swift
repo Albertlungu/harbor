@@ -19,6 +19,51 @@ import Testing
         let file = tempFile()
         let (config, recovered) = file.load()
         #expect(config.docks.isEmpty && !recovered)
+        #expect(!config.settings.weather.enabled)
+    }
+
+    @Test func existingConfigKeepsItsWeatherChoice() throws {
+        let file = tempFile()
+        var on = Config()
+        on.settings.weather.enabled = true
+        try file.save(on)
+        #expect(file.load().config.settings.weather.enabled)
+    }
+
+    @Test func damagedConfigIsKeptBesideTheRecoveredOne() throws {
+        let file = tempFile()
+        try file.save(config(named: "Good"))
+        try file.snapshotCurrent(reason: .daily)
+        try Data("{broken".utf8).write(to: file.configURL)
+        _ = file.load()
+        let names = try FileManager.default.contentsOfDirectory(atPath: file.directory.path)
+        let kept = try #require(names.first { $0.hasPrefix("config.damaged-") })
+        #expect(try Data(contentsOf: file.directory.appendingPathComponent(kept)) == Data("{broken".utf8))
+    }
+
+    @Test func configFromANewerHarborIsKept() throws {
+        let file = tempFile()
+        try FileManager.default.createDirectory(at: file.directory, withIntermediateDirectories: true)
+        try Data(#"{"schemaVersion": 999}"#.utf8).write(to: file.configURL)
+        let (config, recovered) = file.load()
+        #expect(recovered && config.docks.isEmpty)
+        let names = try FileManager.default.contentsOfDirectory(atPath: file.directory.path)
+        #expect(names.contains { $0.hasPrefix("config.damaged-") })
+    }
+
+    @Test func olderSchemaIsMigrated() throws {
+        let data = Data(#"{"schemaVersion": 1, "docks": [{"name": "Old"}]}"#.utf8)
+        let config = try ConfigFile.decode(data)
+        #expect(config.schemaVersion == Config.currentSchemaVersion)
+    }
+
+    @Test func unwritableDirectoryReportsInsteadOfCrashing() throws {
+        let file = tempFile()
+        try FileManager.default.createDirectory(at: file.directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: file.directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.directory.path) }
+        #expect(throws: (any Error).self) { try file.save(Config()) }
+        #expect(file.load().config.docks.isEmpty)
     }
 
     @Test func saveThenLoad() throws {
