@@ -95,10 +95,16 @@ extension WeatherWorld {
                         into out: inout [WeatherSprite]) {
         let n = ledge.count
         guard n > 1 else { return }
-        var points: [(x: Double, h: Double)] = [(ledge.minX, depth[0] * scale)]
+        // A light three-column smoothing for drawing only, so the outline reads as one soft drift; the ends
+        // come down to the ledge so the pile never stops in a wall.
+        func smooth(_ i: Int) -> Double {
+            let l = depth[max(0, i - 1)], m = depth[i], r = depth[min(n - 1, i + 1)]
+            return (l + 2 * m + r) / 4 * scale
+        }
+        var points: [(x: Double, h: Double)] = [(ledge.minX, 0)]
         points.reserveCapacity(n + 2)
-        for i in 0..<n { points.append((ledge.centerX(i), depth[i] * scale)) }
-        points.append((ledge.maxX, depth[n - 1] * scale))
+        for i in 0..<n { points.append((ledge.centerX(i), smooth(i))) }
+        points.append((ledge.maxX, 0))
         var start = 0
         while start < points.count - 1 {
             var end = start + 1

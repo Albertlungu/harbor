@@ -121,9 +121,10 @@ import Testing
         for _ in 0..<600 { ledge.relax(slope: 0.9, edgeHold: 50, roughness: 0.8, rate: 0.5) }
         #expect(abs(ledge.heights.reduce(0, +) - 40) < 0.001)
         let steps = zip(ledge.heights, ledge.heights.dropFirst()).map { abs($0 - $1) }.filter { $0 > 0.05 }
-        // Some columns hold steeper than the average slope, some shallower: the flanks are not straight.
-        #expect(steps.max()! > 0.9 * WeatherLedge.column * 1.2)
-        #expect(steps.min()! < 0.9 * WeatherLedge.column * 0.8)
+        // Stretches hold steeper or shallower than others, so the flanks are not straight; the variation is
+        // gradual, so no single column stands out as a spike.
+        #expect(steps.max()! > steps.min()! * 1.5)
+        #expect(steps.max()! <= 0.9 * WeatherLedge.column * 1.8 + 0.001)
         #expect(!ledge.restless)
     }
 
