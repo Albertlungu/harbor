@@ -8,6 +8,12 @@ protocol WeatherPetSource: AnyObject {
     var weatherPets: [(id: String, feet: CGPoint, unit: Double)] { get }
     /// A small playful hop; `impulse.dx` says which way, `impulse.dy` how hard.
     func weatherNudge(_ id: String, impulse: CGVector)
+    /// How keen a pet is to play right now: 0 while quiet, asleep, held or in the air.
+    func weatherPlayfulness(_ id: String) -> Double
+    /// A walk along the ledge the pet stands on, to `x` in global AppKit coordinates.
+    func weatherWalk(_ id: String, toX x: Double)
+    /// How the pet looks for the next `seconds` while it plays; `ball` is a held snowball's radius.
+    func weatherPose(_ id: String, pose: WeatherPetPose, seconds: Double, ball: Double)
 }
 
 /// Covers one screen, above normal windows so snow can sit on their top edges. Click-through except while
@@ -138,7 +144,9 @@ private final class WeatherStage: NSObject, @unchecked Sendable {
         var still = true, playing = false
         let shown: Bool = lock.withLock {
             guard !hidden else { return false }
-            var left = elapsed * speed
+            // A still world can catch up a whole beat at once, but anything in the air has to be seen moving:
+            // snow tipped off a closed window would otherwise fall and land between two frames.
+            var left = (world.isStill ? elapsed : min(elapsed, 0.1)) * speed
             while left > 0 {
                 let dt = min(left, 1.0 / 30)
                 left -= dt
@@ -462,7 +470,7 @@ final class WeatherController {
     /// After each screen's frame: plays its events, hands the pets over and settles the pace and readings.
     private func frameDone(_ report: WeatherReport, on id: String) {
         guard let screen = screens[id] else { return }
-        handle(report.events)
+        handle(report.events, on: screen)
         screen.still = report.still
         screen.playing = report.playing
         let now = ContinuousClock.now
@@ -503,6 +511,7 @@ final class WeatherController {
         var feet: CGPoint
         var velocity: CGVector
         var unit: Double
+        var playful: Double
     }
 
     private func petBodies(dt: Double) -> [PetBody] {
@@ -512,7 +521,8 @@ final class WeatherController {
         for pet in petSource.weatherPets {
             let before = petFeet[pet.id] ?? pet.feet
             let velocity = dt > 0 ? CGVector(dx: (pet.feet.x - before.x) / dt, dy: (pet.feet.y - before.y) / dt) : .zero
-            bodies.append(PetBody(id: pet.id, feet: pet.feet, velocity: velocity, unit: pet.unit))
+            bodies.append(PetBody(id: pet.id, feet: pet.feet, velocity: velocity, unit: pet.unit,
+                                  playful: settings.interactions ? petSource.weatherPlayfulness(pet.id) : 0))
             seen[pet.id] = pet.feet
         }
         petFeet = seen
@@ -523,15 +533,20 @@ final class WeatherController {
         let frame = screen.screen.geometry.frame
         return pets.filter { frame.contains($0.feet) }.map {
             let p = screen.local($0.feet)
-            return WeatherPet(id: $0.id, x: p.x, y: p.y, vx: $0.velocity.dx, vy: $0.velocity.dy, unit: $0.unit)
+            return WeatherPet(id: $0.id, x: p.x, y: p.y, vx: $0.velocity.dx, vy: $0.velocity.dy, unit: $0.unit,
+                              playful: $0.playful)
         }
     }
 
-    private func handle(_ events: [WeatherEvent]) {
+    private func handle(_ events: [WeatherEvent], on screen: WeatherScreen) {
         for event in events {
             switch event {
             case .nudge(let pet, let dx, let dy):
                 petSource?.weatherNudge(pet, impulse: CGVector(dx: dx, dy: dy))
+            case .walk(let pet, let x):
+                petSource?.weatherWalk(pet, toX: x + screen.origin.x)
+            case .pose(let pet, let pose, let seconds, let ball):
+                petSource?.weatherPose(pet, pose: pose, seconds: seconds, ball: ball)
             case .popped:
                 play("Pop")
             case .splat:
@@ -605,7 +620,12 @@ final class WeatherController {
             let local = surfaces.map {
                 RoamSurface(kind: $0.kind, y: $0.y - origin.y, minX: $0.minX - origin.x, maxX: $0.maxX - origin.x)
             }
-            screen.stage.with { $0.setSurfaces(local, quietly: quietly) }
+            let falling = screen.stage.with {
+                $0.setSurfaces(local, quietly: quietly)
+                return !$0.isStill
+            }
+            // Snow tipped off a window that closed or moved falls at once, not on the next slow beat.
+            if falling, !screen.hidden, pace == .still { setClock(.drift) }
         }
         updateVisibility()
     }

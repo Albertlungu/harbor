@@ -22,8 +22,11 @@ public struct WeatherLedge: Equatable, Sendable {
     /// Depth of rain standing in puddles per column.
     public var water: [Double]
     public var flowers: [WeatherFlower] = []
-    /// Set by anything that changes the shape; cleared once the pile has settled.
-    public var restless = false
+    /// Set by anything that changes the shape; cleared once the pile has settled. Setting it directly
+    /// unsettles the whole ledge; `mark` unsettles only a few columns.
+    public var restless = false { didSet { unsettled = nil } }
+    /// The columns still slumping while `restless`; nil means all of them.
+    var unsettled: ClosedRange<Int>?
 
     public init(y: Double, minX: Double, maxX: Double) {
         self.y = y
@@ -56,7 +59,29 @@ public struct WeatherLedge: Equatable, Sendable {
     public mutating func deposit(x: Double, amount: Double, cap: Double) {
         guard let i = index(x: x) else { return }
         heights[i] = min(cap, heights[i] + amount)
+        mark(i, i)
+    }
+
+    /// Wakes columns `lo...hi` so the next relaxations look at them and their neighbours.
+    mutating func mark(_ lo: Int, _ hi: Int) {
+        let whole = restless && unsettled == nil
+        let merged = unsettled.map { min($0.lowerBound, lo)...max($0.upperBound, hi) } ?? (lo...hi)
         restless = true
+        unsettled = whole ? nil : merged
+    }
+
+    /// How much steeper or shallower than the season's slope a column holds, from -1 to 1. Fixed by the
+    /// column's place on the shared grid, mixing a fine grain with a coarser one, so a pile settles into the
+    /// same lumps and shoulders every time instead of straight-sided heaps.
+    static func grain(_ column: Int) -> Double {
+        func noise(_ n: Int) -> Double {
+            var z = UInt64(bitPattern: Int64(n)) &* 0x9E37_79B9_7F4A_7C15
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return Double((z ^ (z >> 31)) >> 11) / Double(1 << 53) * 2 - 1
+        }
+        let coarse = Int((Double(column) / 5).rounded(.down))
+        return noise(column) * 0.45 + noise(coarse &+ 0x5EED) * 0.55
     }
 
     /// Takes up to `amount` from each column in `x ± radius`; returns the area taken (depth × width).
@@ -70,28 +95,40 @@ public struct WeatherLedge: Equatable, Sendable {
             heights[i] -= taken
             area += taken * Self.column
         }
-        if area > 0 { restless = true }
+        if area > 0 { mark(lo, hi) }
         return area
     }
 
-    /// Lets the pile slump until no step between neighbours is steeper than `slope`. Snow that piles past
-    /// `edgeHold` at an open end tips over the edge and is returned as spill (area) for each end.
+    /// Lets the pile slump a step toward the angle of repose, near the columns that were disturbed. Each
+    /// pair of columns holds its own slope, `slope` give or take `roughness` of it by the column's grain,
+    /// and only `rate` of the excess moves per call, so a pile settles over a few frames into a lumpy
+    /// shape rather than snapping into a straight-sided heap. Snow that piles past `edgeHold` at an open
+    /// end tips over the edge and is returned as spill (area) for each end.
     @discardableResult
-    public mutating func relax(slope: Double, edgeHold: Double) -> (left: Double, right: Double) {
+    public mutating func relax(slope: Double, edgeHold: Double, roughness: Double = 0, rate: Double = 1)
+        -> (left: Double, right: Double) {
         guard restless, count > 0 else { return (0, 0) }
         let limit = slope * Self.column
+        let lo = max(0, (unsettled?.lowerBound ?? 0) - 1)
+        let hi = min(count - 2, unsettled?.upperBound ?? count - 1)
         var moved = 0.0
-        // Sweeping both ways keeps a heap symmetric instead of creeping in one direction.
-        for pass in 0..<2 {
-            let indices: StrideThrough<Int> = pass == 0 ? stride(from: 0, through: count - 2, by: 1)
-                : stride(from: count - 2, through: 0, by: -1)
-            for i in indices {
-                let diff = heights[i] - heights[i + 1]
-                guard abs(diff) > limit else { continue }
-                let shift = (abs(diff) - limit) / 2 * (diff > 0 ? 1 : -1)
-                heights[i] -= shift
-                heights[i + 1] += shift
-                moved += abs(shift)
+        var movedLo = Int.max, movedHi = -1
+        // Sweeping both ways keeps a heap from creeping in one direction.
+        if lo <= hi {
+            for pass in 0..<2 {
+                let indices: StrideThrough<Int> = pass == 0 ? stride(from: lo, through: hi, by: 1)
+                    : stride(from: hi, through: lo, by: -1)
+                for i in indices {
+                    let held = roughness == 0 ? limit : limit * max(0, 1 + roughness * Self.grain(firstColumn + i))
+                    let diff = heights[i] - heights[i + 1]
+                    guard abs(diff) > held else { continue }
+                    let shift = (abs(diff) - held) / 2 * rate * (diff > 0 ? 1 : -1)
+                    heights[i] -= shift
+                    heights[i + 1] += shift
+                    moved += abs(shift)
+                    movedLo = min(movedLo, i)
+                    movedHi = max(movedHi, i + 1)
+                }
             }
         }
         var spill = (left: 0.0, right: 0.0)
@@ -99,13 +136,21 @@ public struct WeatherLedge: Equatable, Sendable {
             spill.left = (heights[0] - edgeHold) * Self.column
             heights[0] = edgeHold
             moved += spill.left
+            movedLo = 0
+            movedHi = max(movedHi, min(1, count - 1))
         }
         if heights[count - 1] > edgeHold {
             spill.right = (heights[count - 1] - edgeHold) * Self.column
             heights[count - 1] = edgeHold
             moved += spill.right
+            movedLo = min(movedLo, max(0, count - 2))
+            movedHi = count - 1
         }
-        if moved < 0.01 { restless = false }
+        if moved < 0.01 {
+            restless = false
+        } else {
+            unsettled = movedLo...movedHi
+        }
         return spill
     }
 
@@ -115,11 +160,19 @@ public struct WeatherLedge: Equatable, Sendable {
         for i in water.indices where water[i] > 0 { water[i] = max(0, water[i] - dry) }
     }
 
-    /// A lost run of columns, as area to drop back into the air.
+    /// A lost run of columns: the pile, puddle water and flowers that were on it, to drop back into the air.
     public struct Spill: Equatable, Sendable {
+        /// Middle and width of the run, and the ledge it sat on.
         public var x: Double
+        public var width: Double
         public var y: Double
+        /// Area of pile, and the deepest column.
         public var area: Double
+        public var depth: Double
+        /// Area of standing water.
+        public var water: Double
+        /// Tints of the flowers that grew there.
+        public var blooms: [UInt8]
     }
 
     /// Moves piles from the previous ledges onto the rebuilt ones. Columns whose ledge is gone (the window
@@ -130,7 +183,7 @@ public struct WeatherLedge: Equatable, Sendable {
             let targets = new.indices.filter { abs(new[$0].y - ledge.y) < 0.5 }
             var pending: Spill?
             func flush() {
-                if let p = pending, p.area > 0.5 { spills.append(p) }
+                if let p = pending, p.area > 0.5 || p.water > 0.3 || !p.blooms.isEmpty { spills.append(p) }
                 pending = nil
             }
             for i in 0..<ledge.count {
@@ -149,14 +202,22 @@ public struct WeatherLedge: Equatable, Sendable {
                     continue
                 }
                 let depth = ledge.heights[i]
-                guard depth > 0 else { flush(); continue }
-                let x = ledge.centerX(i)
-                if var p = pending, x - p.x < run {
+                let blooms = ledge.flowers.filter { $0.column == i && $0.growth > 0.3 }.map(\.tint)
+                guard depth > 0 || ledge.water[i] > 0 || !blooms.isEmpty else { flush(); continue }
+                let left = ledge.centerX(i) - Self.column / 2
+                if var p = pending, left - (p.x - p.width / 2) < run {
+                    let start = p.x - p.width / 2
+                    p.width = left + Self.column - start
+                    p.x = start + p.width / 2
                     p.area += depth * Self.column
+                    p.depth = max(p.depth, depth)
+                    p.water += ledge.water[i] * Self.column
+                    p.blooms += blooms
                     pending = p
                 } else {
                     flush()
-                    pending = Spill(x: x, y: ledge.y + depth / 2, area: depth * Self.column)
+                    pending = Spill(x: left + Self.column / 2, width: Self.column, y: ledge.y, area: depth * Self.column,
+                                    depth: depth, water: ledge.water[i] * Self.column, blooms: blooms)
                 }
             }
             flush()

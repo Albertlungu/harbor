@@ -57,6 +57,12 @@ final class RoamDriver {
     var landImpact = 0.0
     var landAt = Date.distantPast
     var pointerTick = 0
+    /// How the pet looks while it plays in the weather, from `playStart` until `playUntil`; `playBall` is the
+    /// radius in points of a snowball in its paws.
+    var play: WeatherPetPose = .none
+    var playStart = Date.distantPast
+    var playUntil = Date.distantPast
+    var playBall = 0.0
     /// Set by the window so a touch can pause the walk long enough to be petted.
     @ObservationIgnored var onTouch: (() -> Void)?
     @ObservationIgnored var onCarry: (() -> Void)?

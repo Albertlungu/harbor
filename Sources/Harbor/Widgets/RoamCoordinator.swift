@@ -975,6 +975,53 @@ extension RoamCoordinator: WeatherPetSource {
         guard !quiet, let body = petBodies.first(where: { "\($0.key.dock)/\($0.key.item)" == id }) else { return }
         nudge(body.key, impulse: impulse)
     }
+
+    private func weatherPet(_ id: String) -> RoamPet? {
+        pets.values.first { "\($0.key.dock)/\($0.key.item)" == id }
+    }
+
+    /// Only a pet standing about on a ledge plays, never one that is quiet, asleep, held or busy climbing;
+    /// a lively one plays more often and a mellow one less.
+    func weatherPlayfulness(_ id: String) -> Double {
+        guard !quiet, let pet = weatherPet(id), !pet.hidden, !pet.frozen, carrying != pet.key, pet.state.route.isEmpty
+        else { return 0 }
+        switch pet.state.activity {
+        case .walking, .resting, .sitting:
+            switch model?.store.settings.petEnergy ?? .normal {
+            case .mellow: return 0.5
+            case .normal: return 1
+            case .lively: return 1.6
+            }
+        default:
+            return 0
+        }
+    }
+
+    /// Walks a pet along its ledge to something it wants to play with.
+    func weatherWalk(_ id: String, toX x: Double) {
+        guard weatherPlayfulness(id) > 0, let pet = weatherPet(id) else { return }
+        let dx = x - pet.state.x
+        guard abs(dx) > 1 else { return }
+        pet.state.facing = dx > 0 ? 1 : -1
+        pet.state.activity = .walking
+        pet.state.timeLeft = abs(dx) / RoamBrain.walkSpeed(lively: pet.driver.lively)
+        schedule(pet)
+    }
+
+    /// Shows a pet rolling, carrying, throwing, pouncing, shaking off or sniffing for a moment.
+    func weatherPose(_ id: String, pose: WeatherPetPose, seconds: Double, ball: Double) {
+        guard !quiet, let pet = weatherPet(id), !pet.hidden else { return }
+        let driver = pet.driver
+        let until = Date.now.addingTimeInterval(seconds)
+        driver.play = pose
+        driver.playStart = .now
+        driver.playUntil = until
+        driver.playBall = ball
+        Task { @MainActor [weak driver] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if let driver, driver.playUntil == until { driver.play = .none }
+        }
+    }
 }
 
 /// The roaming window's content: the same pet view the dock uses, fed live from the store.
@@ -989,6 +1036,7 @@ struct RoamPetRoot: View {
            let widget = item.widget {
             PetWidget(item: item, widget: widget, dock: dock, size: CGSize(width: driver.side, height: driver.side),
                       state: DockViewState(dockID: dock.id, screenID: screenID), roam: driver)
+                .modifier(RoamPlayEffect(driver: driver))
                 // The whole pet turns so its feet press against its wall or ceiling; the coordinator eases it.
                 .rotationEffect(.degrees(driver.angle))
         }
