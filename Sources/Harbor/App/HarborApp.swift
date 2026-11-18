@@ -21,7 +21,14 @@ struct HarborApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
-        .commands { EditCommands() }
+        .commands {
+            EditCommands()
+            // The menu-bar menu's shortcut only works while that menu is open; this one works from any Harbor window.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { delegate.model.windows.showSettings() }
+                    .keyboardShortcut(",")
+            }
+        }
     }
 
     /// Template glyph from the app bundle; nil under `swift run`, where resources are absent.
