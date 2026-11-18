@@ -96,6 +96,21 @@ final class DockWindowController {
     }
 
     /// The screen-space region that currently responds to the pointer.
+    /// How far magnified icons stick out from the bar; past this the panel is only room for labels.
+    private var hoverReach: CGFloat = 8
+
+    /// The bar plus the band its magnified icons grow into. Hover is held only here so the label room beside a
+    /// side dock never swallows clicks meant for the windows next to it.
+    private var hoverRect: CGRect {
+        let bar = activeRect
+        switch state.hugEdge {
+        case .bottom: return CGRect(x: bar.minX, y: bar.minY, width: bar.width, height: bar.height + hoverReach)
+        case .top: return CGRect(x: bar.minX, y: bar.minY - hoverReach, width: bar.width, height: bar.height + hoverReach)
+        case .left: return CGRect(x: bar.minX, y: bar.minY, width: bar.width + hoverReach, height: bar.height)
+        case .right: return CGRect(x: bar.minX - hoverReach, y: bar.minY, width: bar.width + hoverReach, height: bar.height)
+        }
+    }
+
     private var activeRect: CGRect {
         guard isNotch, state.notchFolded else {
             // The collapse button sits just outside the bar's start, so it counts as part of the dock.
@@ -140,7 +155,10 @@ final class DockWindowController {
 
         let magnify = dock.style.magnify && dock.layout == .dock
         let grow = magnify ? iconSize * CGFloat(dock.style.maxScale - 1) : 0
-        let across = grow + Tokens.Dock.labelHeadroom
+        let across = hug == .left || hug == .right
+            ? max(grow + Tokens.Dock.labelHeadroom, Tokens.Dock.sideLabelRoom)
+            : grow + Tokens.Dock.labelHeadroom
+        hoverReach = grow + 8
         let along = grow * CGFloat(dock.style.falloff) + 12 + (dock.style.collapse.enabled && dock.layout == .dock ? DockMetrics.collapseReach : 0)
         var frame = expandedBar
         switch hug {
@@ -301,7 +319,7 @@ final class DockWindowController {
     func pointerMoved(to point: CGPoint, now: Date = Date()) {
         // A hidden dock's resting rect is still on screen; ignoring it stops labels peeking out at the edge.
         let barHit = !(autoHidden && !isNotch) && activeRect.insetBy(dx: -2, dy: -2).contains(point)
-        let panelHit = panel.frame.contains(point)
+        let panelHit = panel.frame.contains(point) && hoverRect.insetBy(dx: -2, dy: -2).contains(point)
         let inside = barHit || (state.hovering && panelHit && !autoHidden)
 
         if inside != state.hovering { state.hovering = inside }
@@ -402,6 +420,23 @@ final class DockWindowController {
     func peek(duration: Double) {
         guard autoHidden else { return }
         revealFromHotkey(duration: duration)
+        peekTask?.cancel()
+        // Hiding is otherwise decided on pointer moves, so a still pointer would leave the dock out indefinitely.
+        peekTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled else { return }
+            self?.endPeek()
+        }
+    }
+
+    private var peekTask: Task<Void, Never>?
+
+    private func endPeek() {
+        guard hotkeyRevealUntil != nil, Self.hidesWhenIdle(dock), !state.menuOpen,
+              !hoverRect.insetBy(dx: -8, dy: -8).contains(NSEvent.mouseLocation) else { return }
+        hotkeyRevealUntil = nil
+        autoHidden = true
+        place(frame: targetFrame, animated: true)
     }
 
     /// Shows an auto-hidden dock after a hotkey, keeping it up for `duration` seconds (0 = until pointer leaves).

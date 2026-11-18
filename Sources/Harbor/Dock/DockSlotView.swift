@@ -19,6 +19,9 @@ struct DockSlotView: View {
     @State private var flash = false
     @State private var showFolder = false
     @State private var openTrigger = 0
+    @State private var arrival: NSImage?
+    @State private var arrivalLanded = false
+    @State private var gulp = false
     @Environment(\.dockEdge) private var dockEdge
 
     var body: some View {
@@ -44,8 +47,10 @@ struct DockSlotView: View {
                         .popEntrance(enabled: model.store.settings.openAnimation)
                 }
             }
+            .scaleEffect(x: gulp ? 1.14 : 1, y: gulp ? 0.86 : 1, anchor: anchorTowardEdge)
+            .overlay { arrivalIcon }
             .overlay(alignment: .topTrailing) { downloadBadge }
-            .onChange(of: downloadPulse) { signalLaunch() }
+            .onChange(of: downloadPulse) { playArrival() }
             .onChange(of: showFolder) { _, open in state.menuOpen = open }
             .onChange(of: hovered) { _, isHovered in previewHover(isHovered) }
             .accessibilityElement(children: .combine)
@@ -112,6 +117,56 @@ struct DockSlotView: View {
         case .top: .bottom
         case .left: .trailing
         case .right: .leading
+        }
+    }
+
+    /// The file that just finished downloading, flying in from the screen side and dropping into the folder.
+    @ViewBuilder
+    private var arrivalIcon: some View {
+        if let arrival {
+            let away = iconSize * 1.1
+            let start: CGSize = switch state.hugEdge {
+            case .bottom: CGSize(width: 0, height: -away)
+            case .top: CGSize(width: 0, height: away)
+            case .left: CGSize(width: away, height: 0)
+            case .right: CGSize(width: -away, height: 0)
+            }
+            Image(nsImage: arrival)
+                .resizable()
+                .frame(width: iconSize * 0.6, height: iconSize * 0.6)
+                .scaleEffect(arrivalLanded ? 0.35 : 1)
+                .opacity(arrivalLanded ? 0 : 1)
+                .offset(arrivalLanded ? .zero : start)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var anchorTowardEdge: UnitPoint {
+        switch state.hugEdge {
+        case .bottom: .bottom
+        case .top: .top
+        case .left: .leading
+        case .right: .trailing
+        }
+    }
+
+    /// Waits for a peeking dock to slide in, drops the file in, then the folder swallows it with a squash.
+    private func playArrival() {
+        guard let key = folderKey, let url = FolderWatcher.shared.peekNewest(for: key),
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            signalLaunch()
+            return
+        }
+        arrival = NSWorkspace.shared.icon(forFile: url.path)
+        arrivalLanded = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(.easeIn(duration: 0.4)) { arrivalLanded = true }
+            try? await Task.sleep(for: .milliseconds(400))
+            withAnimation(.spring(response: 0.18, dampingFraction: 0.45)) { gulp = true }
+            try? await Task.sleep(for: .milliseconds(140))
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) { gulp = false }
+            arrival = nil
         }
     }
 

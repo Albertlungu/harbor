@@ -24,6 +24,9 @@ final class FolderWatcher {
     /// The latest finished download per folder, selected when its browser next opens.
     @ObservationIgnored private var newest: [String: URL] = [:]
 
+    /// The latest arrival in a folder without consuming it, for the drop-in animation.
+    func peekNewest(for key: String) -> URL? { newest[key] }
+
     static let downloadsPath: String = {
         let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
@@ -102,6 +105,9 @@ final class FolderWatcher {
         }
     }
 
+    /// Long enough to see the file drop in, short enough not to get in the way.
+    static let peekDuration = 1.3
+
     /// The badge stays until the folder is opened, so a download finished while away is still noticed.
     private func arrived(_ count: Int, newest name: String) {
         let path = Self.downloadsPath
@@ -112,7 +118,7 @@ final class FolderWatcher {
         guard let model, model.store.settings.peekOnDownload else { return }
         for dock in model.store.docks where dock.items.contains(where: { $0.kind == .folder && $0.url.map(Self.key) == path }) {
             for controller in model.dockController.controllers(for: dock.id) {
-                controller.peek(duration: 6)
+                controller.peek(duration: Self.peekDuration)
             }
         }
     }
