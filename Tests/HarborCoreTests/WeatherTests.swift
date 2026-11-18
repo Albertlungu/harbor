@@ -76,16 +76,6 @@ import Testing
         #expect(settings.enabled && settings.season == .auto && settings.accumulation && !settings.sounds)
         let app = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         #expect(app.weather == WeatherSettings())
-        #expect(settings.quality == .balanced)
-    }
-
-    @Test func lightQualityIsSlowerAndSparser() {
-        #expect(WeatherQuality.light.driftRate < WeatherQuality.balanced.driftRate)
-        #expect(WeatherQuality.balanced.driftRate < WeatherQuality.smooth.driftRate)
-        var w = world(.winter)
-        let full = w.spawnRate
-        w.detail = WeatherQuality.light.detail
-        #expect(abs(w.spawnRate - full / 2) < 0.001)
     }
 
     // MARK: Height field

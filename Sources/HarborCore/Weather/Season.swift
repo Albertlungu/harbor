@@ -32,29 +32,6 @@ public enum SeasonChoice: String, CaseIterable, Codable, Sendable {
     public var title: String { self == .auto ? "Automatic" : rawValue.capitalized }
 }
 
-/// How smoothly the weather moves against what it costs. Every frame makes the window server recomposite
-/// the screen, so the frame rate is most of the cost.
-public enum WeatherQuality: String, CaseIterable, Codable, Sendable {
-    case smooth, balanced, light
-
-    public var title: String { rawValue.capitalized }
-
-    /// Frames a second for weather that only drifts; each divides common refresh rates so frames land evenly.
-    public var driftRate: Double {
-        switch self {
-        case .smooth: 30
-        case .balanced: 20
-        case .light: 15
-        }
-    }
-
-    /// Frames a second while something is held, thrown or blown.
-    public var playRate: Double { self == .light ? 30 : 60 }
-
-    /// Share of the usual amount that falls.
-    public var detail: Double { self == .light ? 0.5 : 1 }
-}
-
 /// Settings › Seasons.
 public struct WeatherSettings: Codable, Hashable, Sendable {
     public var enabled = true
@@ -65,7 +42,6 @@ public struct WeatherSettings: Codable, Hashable, Sendable {
     public var accumulation = true
     public var interactions = true
     public var sounds = false
-    public var quality: WeatherQuality = .balanced
 
     public init() {}
 
@@ -79,7 +55,6 @@ public struct WeatherSettings: Codable, Hashable, Sendable {
         accumulation = c(.accumulation, d.accumulation)
         interactions = c(.interactions, d.interactions)
         sounds = c(.sounds, d.sounds)
-        quality = c(.quality, d.quality)
     }
 
     public func season(at date: Date, calendar: Calendar = .current) -> Season {

@@ -121,8 +121,6 @@ public struct WeatherWorld: Sendable {
     public var interactions: Bool
     /// Local evening, when summer brings fireflies instead of seeds and bubbles.
     public var evening: Bool
-    /// Share of the usual amount that falls, lowered to save power.
-    public var detail = 1.0
 
     public internal(set) var ledges: [WeatherLedge] = []
     public internal(set) var particles: [WeatherParticle] = []
@@ -209,7 +207,7 @@ public struct WeatherWorld: Sendable {
     /// Particles a second this screen is spawning right now.
     public var spawnRate: Double {
         guard intensity > 0 else { return 0 }
-        let scale = width / 1000 * (0.15 + intensity * 1.7) * detail
+        let scale = width / 1000 * (0.15 + intensity * 1.7)
         switch season {
         case .summer:
             return evening ? 0 : tuning.rate * scale
@@ -377,7 +375,7 @@ public struct WeatherWorld: Sendable {
 
     private mutating func spawn(_ dt: Double) {
         if season == .summer, evening {
-            let wanted = Int((6 + intensity * 30) * detail)
+            let wanted = Int(6 + intensity * 30)
             var fireflies = particles.reduce(0) { $0 + ($1.kind == .firefly ? 1 : 0) }
             while fireflies < wanted, rng.next() < dt * 2 { addFirefly(); fireflies += 1 }
             return

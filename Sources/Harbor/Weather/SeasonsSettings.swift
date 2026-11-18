@@ -33,10 +33,6 @@ struct SeasonsSettings: View {
                 Toggle("Play with the pointer", isOn: model.setting(\.weather.interactions))
                 note(playNote(weather.season(at: .now)))
                 Toggle("Sounds", isOn: model.setting(\.weather.sounds))
-                Picker("Quality", selection: model.setting(\.weather.quality)) {
-                    ForEach(WeatherQuality.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                note("Smooth moves at 30 frames a second, Balanced at 20 and Light at 15 with half as much falling, which is easiest on the battery.")
                 Button(Self.clearTitle(weather.season(at: .now))) { WeatherController.shared.clear() }
             }
             .disabled(!weather.enabled)

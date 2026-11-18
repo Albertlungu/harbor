@@ -231,7 +231,6 @@ final class WeatherController {
         return thread
     }()
     private var pace: Pace?
-    private var appliedQuality: WeatherQuality?
     /// The slow beat that stands in for the display links while nothing moves.
     private var beat: Timer?
     /// When the pointer last moved fast enough to blow the weather about.
@@ -372,16 +371,10 @@ final class WeatherController {
                 $0.intensity = settings.intensity
                 $0.accumulation = settings.accumulation
                 $0.interactions = settings.interactions
-                $0.detail = settings.quality.detail
             }
             if screen.panel.sharingType != sharing { screen.panel.sharingType = sharing }
         }
         if monitors.isEmpty { installMonitors() }
-        // A new quality takes effect at once, not when the pace next changes.
-        if settings.quality != appliedQuality {
-            appliedQuality = settings.quality
-            pace = nil
-        }
         updateVisibility()
         snapshot()
     }
@@ -428,22 +421,17 @@ final class WeatherController {
 
     // MARK: Clock
 
-    /// Brisk while a ball or bubble is in hand or in flight, steady for weather that drifts, and a slow beat
-    /// when nothing moves at all. Every frame makes the window server recomposite the screen, so the brisk
-    /// rate is kept to direct play; Settings › Seasons › Quality sets the rates.
-    private enum Pace {
-        case play, drift, still
+    /// Frames a second: brisk while a ball or bubble is in hand or in flight, steady for weather that drifts,
+    /// and a slow beat when nothing moves at all. Every frame makes the window server recomposite the screen,
+    /// so the brisk rate is kept to direct play; the rates divide common refresh rates so frames land evenly.
+    private enum Pace: Double {
+        case play = 60, drift = 30, still = 1
     }
 
     private func setClock(_ wanted: Pace) {
         guard pace != wanted else { return }
         pace = wanted
-        let quality = settings.quality
-        let rate: Double? = switch wanted {
-        case .play: quality.playRate
-        case .drift: quality.driftRate
-        case .still: nil
-        }
+        let rate: Double? = wanted == .still ? nil : wanted.rawValue
         for stage in screens.values.map(\.stage) { thread.perform { stage.pace(rate) } }
         beat?.invalidate()
         beat = nil
