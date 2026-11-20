@@ -21,11 +21,7 @@ struct StorageWidgetMenu: View {
                 }
             }
         case .shelf?:
-            Button("Clear Shelf…") {
-                if StorageDialogs.confirm("Clear the shelf?", message: "Every copy on the shelf is deleted.", action: "Clear All") {
-                    ShelfOps.clear(model: model)
-                }
-            }
+            Button("Clear Shelf") { ShelfOps.clear(model: model) }
         case .fileShelf?:
             Button("Clear Shelf…") {
                 if StorageDialogs.confirm("Clear the file shelf?", message: "Only the list is cleared. The files stay where they are.",
@@ -35,7 +31,7 @@ struct StorageWidgetMenu: View {
             }
         case .trash?:
             Button("Open Trash in Finder") { NSWorkspace.shared.open(TrashService.url) }
-            Button("Empty Trash…") { TrashService.emptyWithDialogs() }
+            Button("Empty Trash…") { TrashService.emptyWithDialogs(confirm: !NSEvent.modifierFlags.contains(.command)) }
         default:
             EmptyView()
         }

@@ -24,23 +24,37 @@ enum ShelfOps {
     }
 
     /// `afterDelay` leaves the copy in place long enough for a drop target to finish reading it.
-    static func remove(_ entry: ShelfEntry, model: AppModel, afterDelay delay: Duration = .zero) {
-        model.store.updateShelf { $0.removeAll { $0.id == entry.id } }
-        let url = URL(fileURLWithPath: entry.path)
+    static func remove(_ urls: [URL], model: AppModel, afterDelay delay: Duration = .zero) {
+        let paths = Set(urls.map(\.standardizedFileURL.path))
+        model.store.updateShelf { $0.removeAll { paths.contains(URL(fileURLWithPath: $0.path).standardizedFileURL.path) } }
         Task { @MainActor in
             if delay > .zero { try? await Task.sleep(for: delay) }
-            try? FileManager.default.removeItem(at: url)
+            for url in urls { try? FileManager.default.removeItem(at: url) }
         }
     }
 
+    /// Empties the shelf folder, including anything added to it from the browser.
     static func clear(model: AppModel) {
-        let entries = model.store.config.shelf
+        let directory = model.file.shelfDirectory
+        let contents = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for url in contents { try? FileManager.default.removeItem(at: url) }
         model.store.updateShelf { $0.removeAll() }
-        for entry in entries { try? FileManager.default.removeItem(atPath: entry.path) }
+    }
+
+    /// Matches the saved list to what the shelf folder holds, since the browser can paste, drop, rename and
+    /// delete there directly. Entries still present keep their identity and date.
+    static func sync(_ urls: [URL], model: AppModel) {
+        let present = urls.filter { !$0.lastPathComponent.hasPrefix(".") }
+        let presentPaths = Set(present.map(\.standardizedFileURL.path))
+        let current = model.store.config.shelf
+        let kept = current.filter { presentPaths.contains(URL(fileURLWithPath: $0.path).standardizedFileURL.path) }
+        let known = Set(kept.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        let next = kept + present.filter { !known.contains($0.standardizedFileURL.path) }.map { ShelfEntry(path: $0.path) }
+        if next != current { model.store.updateShelf { $0 = next } }
     }
 }
 
-/// Parks copies of files in a collection shared by every shelf.
+/// Parks copies of files in a collection shared by every shelf, shown in a Finder-style browser.
 struct ShelfWidget: View {
     @Environment(AppModel.self) private var model
     let item: DockItem
@@ -50,6 +64,8 @@ struct ShelfWidget: View {
     let state: DockViewState
 
     @State private var open = false
+    @State private var dropTargeted = false
+    @State private var springTask: Task<Void, Never>?
 
     var body: some View {
         let count = model.store.config.shelf.count
@@ -59,46 +75,50 @@ struct ShelfWidget: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { open.toggle() }
-            .storagePopover(isPresented: $open, state: state) {
-                ShelfPanel(item: item, dockID: dock.id, onClose: { open = false })
+            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+                StorageWidgetDrop.handle(providers, item: item, dock: dock, model: model)
+            }
+            // Springs open while files are held over it, so they can be dropped straight into the browser.
+            .onChange(of: dropTargeted) { _, over in
+                springTask?.cancel()
+                guard over, !open else { return }
+                springTask = Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    if !Task.isCancelled { open = true }
+                }
+            }
+            .storagePopover(isPresented: $open, state: state, sized: false) {
+                FolderBrowser(folder: shelfFolder, options: item.folder, role: role, arrowEdge: state.popoverEdge,
+                              save: { options in model.store.updateItem(item.id, in: dock.id) { $0.folder = options } },
+                              onClose: { open = false })
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Shelf")
             .accessibilityValue(count == 0 ? "Empty" : "\(count) items")
             .accessibilityAddTraits(.isButton)
     }
-}
 
-private struct ShelfPanel: View {
-    @Environment(AppModel.self) private var model
-    let item: DockItem
-    let dockID: UUID
-    let onClose: () -> Void
+    private var shelfFolder: URL {
+        let directory = model.file.shelfDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
 
-    private var settings: WidgetConfig { WidgetFields(model: model, itemID: item.id, dockID: dockID).current }
-
-    var body: some View {
-        FilePanel(
-            labels: .init(title: "Shelf", clearButton: "Clear All", clearTitle: "Clear the shelf?",
-                          clearMessage: "Every copy on the shelf is deleted. Your originals are not touched.",
-                          removeItem: "Remove from Shelf", emptyTitle: Copy.emptyShelf(model.playful).title,
-                          emptyHint: Copy.emptyShelf(model.playful).detail, emptySymbol: "tray"),
-            entries: model.store.config.shelf.map { FilePanelEntry(id: $0.id.uuidString, url: URL(fileURLWithPath: $0.path)) },
-            searchable: false,
-            showsCopy: false,
-            onRemove: { entry in
-                if let shelfEntry = model.store.config.shelf.first(where: { $0.id.uuidString == entry.id }) {
-                    ShelfOps.remove(shelfEntry, model: model)
-                }
+    private var role: FolderBrowserRole {
+        let model = model
+        let removeAfterDrag = widget.string("afterDrag", "keep") == "remove"
+        let empty = Copy.emptyShelf(model.playful)
+        return FolderBrowserRole(
+            kind: .shelf, dropsMove: widget.string("dropAction", "copy") == "move",
+            emptyTitle: empty.title, emptyHint: empty.detail, emptySymbol: "tray",
+            onRootRead: { ShelfOps.sync($0, model: model) },
+            onDraggedOut: { urls in
+                guard removeAfterDrag else { return }
+                let shelf = model.file.shelfDirectory.standardizedFileURL.path + "/"
+                ShelfOps.remove(urls.filter { $0.standardizedFileURL.path.hasPrefix(shelf) }, model: model,
+                                afterDelay: .seconds(10))
             },
-            onClear: { ShelfOps.clear(model: model) },
-            onAdd: { ShelfOps.add($0, model: model, move: settings.string("dropAction", "copy") == "move") },
-            onDragEnd: { entry, inside in
-                guard !inside, settings.string("afterDrag", "keep") == "remove",
-                      let shelfEntry = model.store.config.shelf.first(where: { $0.id.uuidString == entry.id }) else { return }
-                ShelfOps.remove(shelfEntry, model: model, afterDelay: .seconds(10))
-            },
-            onClose: onClose)
+            clear: ("Clear All", { ShelfOps.clear(model: model) }))
     }
 }
 

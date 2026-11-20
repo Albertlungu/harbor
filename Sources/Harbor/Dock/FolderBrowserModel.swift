@@ -4,12 +4,35 @@ import HarborCore
 import Observation
 import QuickLookUI
 
+/// How a browser differs when it shows a widget's own storage rather than a pinned folder.
+struct FolderBrowserRole {
+    enum Kind { case folder, shelf, trash }
+    var kind = Kind.folder
+    /// Drops from elsewhere move rather than copy; Command and Option still pick either.
+    var dropsMove = false
+    var emptyTitle = "Empty folder"
+    var emptyHint: String? = nil
+    var emptySymbol = "folder"
+    var deniedHint = "Allow Harbor to access it in System Settings, or open it in Finder."
+    /// Runs after each read of the root folder, so storage built on it can follow what is there.
+    var onRootRead: (@MainActor ([URL]) -> Void)? = nil
+    /// Files dragged from the browser and dropped outside its window.
+    var onDraggedOut: (@MainActor ([URL]) -> Void)? = nil
+    /// Empties the storage; the toolbar shows a button for it when set.
+    var clear: (title: String, run: @MainActor () -> Void)? = nil
+
+    static let folder = FolderBrowserRole()
+    /// Storage folders keep navigation inside themselves.
+    var confined: Bool { kind != .folder }
+}
+
 /// State and commands for one folder popover: the folder shown, its entries, the selection, and
 /// the Finder actions the views and the keyboard trigger.
 @MainActor
 @Observable
 final class FolderBrowserModel {
     let root: URL
+    let role: FolderBrowserRole
     private(set) var history: FolderHistory
     private(set) var options: FolderOptions
     /// Sorted entries of the current folder.
@@ -41,8 +64,10 @@ final class FolderBrowserModel {
 
     var current: URL { history.current }
 
-    init(root: URL, options: FolderOptions, persist: @escaping (FolderOptions) -> Void, close: @escaping () -> Void) {
+    init(root: URL, options: FolderOptions, role: FolderBrowserRole = .folder, persist: @escaping (FolderOptions) -> Void,
+         close: @escaping () -> Void) {
         self.root = root
+        self.role = role
         self.options = options
         self.persist = persist
         self.close = close
@@ -90,6 +115,7 @@ final class FolderBrowserModel {
                 self.entries = FolderOrdering.sorted(read ?? [], options: self.options)
                 self.loaded = true
                 self.contentRevision += 1
+                if folder == self.root, let read { self.role.onRootRead?(read.map(\.url)) }
                 self.refilter()
                 if !self.selectAfterLoad.isEmpty {
                     self.select(self.selectAfterLoad)
@@ -182,6 +208,7 @@ final class FolderBrowserModel {
     }
 
     func goUp() {
+        guard canGoUp else { return }
         let parent = current.deletingLastPathComponent()
         guard parent.path != current.path else { return }
         let from = current
@@ -189,7 +216,7 @@ final class FolderBrowserModel {
         didNavigate(from: from)
     }
 
-    var canGoUp: Bool { current.path != "/" }
+    var canGoUp: Bool { role.confined ? current.standardizedFileURL != root.standardizedFileURL : current.path != "/" }
 
     /// Going back or up selects the folder just left, as Finder does.
     private func didNavigate(from: URL?) {
@@ -252,7 +279,14 @@ final class FolderBrowserModel {
     func trashSelection() {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
-        FileOperations.trash(urls)
+        if role.kind == .trash { deleteImmediately(urls) } else { FileOperations.trash(urls) }
+    }
+
+    /// Finder's Delete Immediately for items already in the Trash; asks first, since there is no undo.
+    private func deleteImmediately(_ urls: [URL]) {
+        let what = urls.count == 1 ? "\u{201C}\(urls[0].lastPathComponent)\u{201D}" : "these \(urls.count) items"
+        guard StorageDialogs.confirm("Delete \(what) immediately?", message: "This can't be undone.", action: "Delete") else { return }
+        for url in urls { try? FileManager.default.removeItem(at: url) }
     }
 
     func duplicateSelection() {
@@ -274,7 +308,13 @@ final class FolderBrowserModel {
     }
 
     func paste() {
-        let made = FileOperations.transfer(FileOperations.pasteboardFiles(), into: current, move: false)
+        let files = FileOperations.pasteboardFiles()
+        guard !files.isEmpty else { return }
+        if role.kind == .trash {
+            FileOperations.trash(files)
+            return
+        }
+        let made = FileOperations.transfer(files, into: current, move: false)
         if !made.isEmpty { selectAfterLoad = made }
     }
 
@@ -305,7 +345,7 @@ final class FolderBrowserModel {
         let flags = NSEvent.modifierFlags
         if flags.contains(.option), mask.contains(.copy) { return .copy }
         if flags.contains(.command), mask.contains(.move) || mask.contains(.generic) { return .move }
-        if fromSelf, mask.contains(.move) || mask.contains(.generic) { return .move }
+        if fromSelf || role.dropsMove || role.kind == .trash, mask.contains(.move) || mask.contains(.generic) { return .move }
         return mask.contains(.copy) ? .copy : (mask.contains(.move) ? .move : [])
     }
 
@@ -314,12 +354,23 @@ final class FolderBrowserModel {
                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         let target = folder ?? current
         guard !urls.isEmpty, !urls.contains(target) else { return false }
+        // Dropping on the Trash trashes, the way Finder's Trash does, so undo puts files back.
+        if role.kind == .trash, !fromSelf {
+            FileOperations.trash(urls)
+            return true
+        }
         let made = FileOperations.transfer(urls, into: target, move: dropOperation(info, fromSelf: fromSelf) == .move)
         if target == current, !made.isEmpty { selectAfterLoad = made }
         return !made.isEmpty
     }
 
-    func draggedOut() {
+    /// Files land in the shown folder from a drop on its empty view, with the same rules as any other drop.
+    func acceptDropped(_ urls: [URL]) {
+        if role.kind == .trash { FileOperations.trash(urls) } else { FileOperations.transfer(urls, into: current, move: role.dropsMove) }
+    }
+
+    func draggedOut(_ urls: [URL] = [], at point: NSPoint? = nil) {
+        if let point, let window, !window.frame.contains(point), !urls.isEmpty { role.onDraggedOut?(urls) }
         if options.closeAfterDragOut { close() }
     }
 
@@ -384,12 +435,12 @@ final class FolderBrowserModel {
         default:
             switch (flags, chars) {
             case ([.command], "o"): openSelection()
-            case ([.command], "d"): duplicateSelection()
+            case ([.command], "d") where role.kind != .trash: duplicateSelection()
             case ([.command], "c"): copySelection()
             case ([.command], "v"): paste()
             case ([.command], "z"): undo()
             case ([.command, .shift], "z"): redo()
-            case ([.command, .shift], "n"): newFolder()
+            case ([.command, .shift], "n") where role.kind != .trash: newFolder()
             case ([.command], "i"): showInfo()
             case ([.command], "["): goBack()
             case ([.command], "]"): goForward()
@@ -408,9 +459,13 @@ final class FolderBrowserModel {
         let menu = NSMenu()
         let urls = clicked == nil ? [] : selectedURLs
         if urls.isEmpty {
-            menu.addItem(action("New Folder") { [weak self] in self?.newFolder() })
+            if let clear = role.clear {
+                menu.addItem(action(clear.title) { clear.run() })
+                menu.addItem(.separator())
+            }
+            if role.kind != .trash { menu.addItem(action("New Folder") { [weak self] in self?.newFolder() }) }
             menu.addItem(action("Get Info") { [weak self] in self?.showInfo() })
-            if !FileOperations.pasteboardFiles().isEmpty {
+            if role.kind != .trash, !FileOperations.pasteboardFiles().isEmpty {
                 menu.addItem(action("Paste") { [weak self] in self?.paste() })
             }
             menu.addItem(.separator())
@@ -429,14 +484,16 @@ final class FolderBrowserModel {
             menu.addItem(openWithMenu(url))
         }
         menu.addItem(.separator())
-        menu.addItem(action("Move to Trash") { [weak self] in self?.trashSelection() })
+        menu.addItem(action(role.kind == .trash ? "Delete Immediately…" : "Move to Trash") { [weak self] in self?.trashSelection() })
         menu.addItem(.separator())
         menu.addItem(action("Get Info") { [weak self] in self?.showInfo() })
         if urls.count == 1 { menu.addItem(action("Rename") { [weak self] in self?.beginRename() }) }
-        menu.addItem(action(urls.count == 1 ? "Compress \"\(urls[0].lastPathComponent)\"" : "Compress \(urls.count) Items") {
-            [weak self] in self?.compressSelection()
-        })
-        menu.addItem(action("Duplicate") { [weak self] in self?.duplicateSelection() })
+        if role.kind != .trash {
+            menu.addItem(action(urls.count == 1 ? "Compress \"\(urls[0].lastPathComponent)\"" : "Compress \(urls.count) Items") {
+                [weak self] in self?.compressSelection()
+            })
+            menu.addItem(action("Duplicate") { [weak self] in self?.duplicateSelection() })
+        }
         menu.addItem(action("Quick Look") { [weak self] in self?.quickLook() })
         menu.addItem(.separator())
         menu.addItem(action(urls.count == 1 ? "Copy" : "Copy \(urls.count) Items") { [weak self] in self?.copySelection() })

@@ -142,7 +142,7 @@ final class FolderCollectionCoordinator: NSObject, NSCollectionViewDataSource, N
 
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
                         endedAt screenPoint: NSPoint, dragOperation operation: NSDragOperation) {
-        if !operation.isEmpty { model.draggedOut() }
+        if !operation.isEmpty { model.draggedOut(FolderDrag.urls(session), at: screenPoint) }
     }
 
     // Dropping in: onto a folder puts files inside it, anywhere else into the folder shown.
@@ -495,7 +495,7 @@ final class FolderListCoordinator: NSObject, NSTableViewDataSource, NSTableViewD
 
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint,
                    operation: NSDragOperation) {
-        if !operation.isEmpty { model.draggedOut() }
+        if !operation.isEmpty { model.draggedOut(FolderDrag.urls(session), at: screenPoint) }
     }
 
     // Dropping in
@@ -761,5 +761,12 @@ struct FolderPreview: NSViewRepresentable {
 
     static func dismantleNSView(_ view: NSView, coordinator: ()) {
         (view as? QLPreviewView)?.close()
+    }
+}
+
+enum FolderDrag {
+    @MainActor
+    static func urls(_ session: NSDraggingSession) -> [URL] {
+        (session.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
     }
 }

@@ -46,44 +46,4 @@ public enum StorageLogic {
 
     /// Setting value clamped to the range the App Stack grid supports.
     public static func clampedColumns(_ value: Double) -> Int { min(8, max(3, Int(value.rounded()))) }
-
-    /// Date and size sort newest and largest first; name and kind sort A to Z.
-    public static func sortTrash(_ entries: [TrashEntry], by sort: TrashSort) -> [TrashEntry] {
-        func byName(_ a: TrashEntry, _ b: TrashEntry) -> Bool {
-            a.name.localizedStandardCompare(b.name) == .orderedAscending
-        }
-        return entries.sorted { a, b in
-            switch sort {
-            case .date: a.added != b.added ? a.added > b.added : byName(a, b)
-            case .size: a.size != b.size ? a.size > b.size : byName(a, b)
-            case .name: byName(a, b)
-            case .kind:
-                a.kind != b.kind ? a.kind.localizedStandardCompare(b.kind) == .orderedAscending : byName(a, b)
-            }
-        }
-    }
-
-    /// Case-insensitive match on the name; an empty query keeps everything.
-    public static func filterTrash(_ entries: [TrashEntry], query: String) -> [TrashEntry] {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        return q.isEmpty ? entries : entries.filter { $0.name.localizedCaseInsensitiveContains(q) }
-    }
-}
-
-public enum TrashSort: String, CaseIterable, Sendable {
-    case date, name, size, kind
-}
-
-public struct TrashEntry: Hashable, Sendable {
-    public var name: String
-    public var added: Date
-    public var size: Int64
-    public var kind: String
-
-    public init(name: String, added: Date, size: Int64, kind: String) {
-        self.name = name
-        self.added = added
-        self.size = size
-        self.kind = kind
-    }
 }

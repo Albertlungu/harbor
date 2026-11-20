@@ -52,9 +52,10 @@ enum StorageDialogs {
 
 extension View {
     /// A popover anchored away from the dock edge that keeps auto-hide away while it is open.
-    func storagePopover<Popup: View>(isPresented: Binding<Bool>, state: DockViewState,
+    /// `sized` gives the popover the storage panels' fixed width; a browser picks its own.
+    func storagePopover<Popup: View>(isPresented: Binding<Bool>, state: DockViewState, sized: Bool = true,
                                      @ViewBuilder content: @escaping () -> Popup) -> some View {
-        modifier(StoragePopover(isPresented: isPresented, state: state, popup: content))
+        modifier(StoragePopover(isPresented: isPresented, state: state, sized: sized, popup: content))
     }
 
     func hoverHighlight(selected: Bool = false) -> some View {
@@ -66,25 +67,19 @@ private struct StoragePopover<Popup: View>: ViewModifier {
     @Environment(AppModel.self) private var model
     @Binding var isPresented: Bool
     let state: DockViewState
+    let sized: Bool
     let popup: () -> Popup
     @Environment(\.dockEdge) private var dockEdge
     @State private var openTrigger = 0
 
-    private var edge: Edge {
-        switch state.hugEdge {
-        case .bottom: .top
-        case .top: .bottom
-        case .left: .trailing
-        case .right: .leading
-        }
-    }
+    private var edge: Edge { state.popoverEdge }
 
     func body(content: Content) -> some View {
         content
             .modifier(OpenEffectModifier(trigger: openTrigger, effect: model.store.settings.openEffect, edge: dockEdge))
             .popover(isPresented: $isPresented, arrowEdge: edge) {
                 popup()
-                    .frame(width: Tokens.Storage.popoverWidth)
+                    .frame(width: sized ? Tokens.Storage.popoverWidth : nil)
                     .environment(model)
                     .popEntrance(enabled: model.store.settings.openAnimation)
             }
@@ -175,6 +170,18 @@ enum DragWatcher {
             while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(100)) }
             let inside = box.window?.frame.contains(NSEvent.mouseLocation) ?? false
             completion(inside)
+        }
+    }
+}
+
+extension DockViewState {
+    /// The side of a popover that faces the dock, where its arrow sits.
+    var popoverEdge: Edge {
+        switch hugEdge {
+        case .bottom: .top
+        case .top: .bottom
+        case .left: .trailing
+        case .right: .leading
         }
     }
 }

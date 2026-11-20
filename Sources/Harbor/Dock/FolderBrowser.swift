@@ -14,12 +14,13 @@ struct FolderBrowser: View {
     @State private var dragSize: CGSize?
     @State private var measured: CGSize = .zero
 
-    init(folder: URL, options: FolderOptions, arrowEdge: Edge, save: @escaping (FolderOptions) -> Void,
-         onClose: @escaping () -> Void) {
+    init(folder: URL, options: FolderOptions, role: FolderBrowserRole = .folder, arrowEdge: Edge,
+         save: @escaping (FolderOptions) -> Void, onClose: @escaping () -> Void) {
         self.onClose = onClose
         self.arrowEdge = arrowEdge
         self.options = options
-        _model = State(initialValue: FolderBrowserModel(root: folder, options: options, persist: save, close: onClose))
+        _model = State(initialValue: FolderBrowserModel(root: folder, options: options, role: role, persist: save,
+                                                        close: onClose))
     }
 
     var body: some View {
@@ -57,15 +58,21 @@ struct FolderBrowser: View {
             ContentUnavailableView {
                 Label("Can't read this folder", systemImage: "lock")
             } description: {
-                Text("Allow Harbor to access it in System Settings, or open it in Finder.")
+                Text(model.role.deniedHint)
+            } actions: {
+                Button("Open in Finder") { model.openCurrentInFinder() }
             }
         } else if model.loaded && model.entries.isEmpty {
-            ContentUnavailableView("Empty folder", systemImage: "folder")
-                .contextMenu { Button("New Folder") { model.newFolder() } }
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                    DropLoader.urls(from: providers) { FileOperations.transfer($0, into: model.current, move: false) }
-                    return true
-                }
+            ContentUnavailableView {
+                Label(model.role.emptyTitle, systemImage: model.role.emptySymbol)
+            } description: {
+                if let hint = model.role.emptyHint { Text(hint) }
+            }
+            .contextMenu { if model.role.kind != .trash { Button("New Folder") { model.newFolder() } } }
+            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                DropLoader.urls(from: providers) { model.acceptDropped($0) }
+                return true
+            }
         } else {
             switch model.options.layout {
             case .grid: FolderIconsView(model: model)
@@ -291,6 +298,11 @@ private struct FolderToolbar: View {
             Button { model.openCurrentInFinder() } label: { Image(systemName: "macwindow") }
                 .controlSize(.small)
                 .help("Open in Finder")
+            if let clear = model.role.clear {
+                Button(clear.title) { clear.run() }
+                    .controlSize(.small)
+                    .disabled(model.loaded && model.entries.isEmpty && model.current == model.root)
+            }
         }
         .padding(.horizontal, Tokens.Space.m)
         .padding(.vertical, Tokens.Space.s)

@@ -34,23 +34,4 @@ import Testing
         #expect(StorageLogic.clampedColumns(5.4) == 5)
         #expect(StorageLogic.clampedColumns(20) == 8)
     }
-
-    @Test func trashSorting() {
-        let now = Date()
-        let a = TrashEntry(name: "b.txt", added: now, size: 10, kind: "Text")
-        let b = TrashEntry(name: "a.png", added: now.addingTimeInterval(-60), size: 500, kind: "Image")
-        let c = TrashEntry(name: "c.md", added: now.addingTimeInterval(-30), size: 5, kind: "Document")
-        let all = [a, b, c]
-        #expect(StorageLogic.sortTrash(all, by: .date).map(\.name) == ["b.txt", "c.md", "a.png"])
-        #expect(StorageLogic.sortTrash(all, by: .name).map(\.name) == ["a.png", "b.txt", "c.md"])
-        #expect(StorageLogic.sortTrash(all, by: .size).map(\.name) == ["a.png", "b.txt", "c.md"])
-        #expect(StorageLogic.sortTrash(all, by: .kind).map(\.name) == ["c.md", "a.png", "b.txt"])
-    }
-
-    @Test func trashFilter() {
-        let entries = [TrashEntry(name: "Report.pdf", added: .now, size: 1, kind: "PDF"),
-                       TrashEntry(name: "photo.png", added: .now, size: 1, kind: "Image")]
-        #expect(StorageLogic.filterTrash(entries, query: "rep").map(\.name) == ["Report.pdf"])
-        #expect(StorageLogic.filterTrash(entries, query: " ").count == 2)
-    }
 }
