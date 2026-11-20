@@ -64,8 +64,7 @@ struct ShelfWidget: View {
     let state: DockViewState
 
     @State private var open = false
-    @State private var dropTargeted = false
-    @State private var springTask: Task<Void, Never>?
+    @State private var popup = WindowBox()
 
     var body: some View {
         let count = model.store.config.shelf.count
@@ -75,22 +74,14 @@ struct ShelfWidget: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { open.toggle() }
-            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-                StorageWidgetDrop.handle(providers, item: item, dock: dock, model: model)
-            }
-            // Springs open while files are held over it, so they can be dropped straight into the browser.
-            .onChange(of: dropTargeted) { _, over in
-                springTask?.cancel()
-                guard over, !open else { return }
-                springTask = Task {
-                    try? await Task.sleep(for: .milliseconds(350))
-                    if !Task.isCancelled { open = true }
-                }
-            }
+            .modifier(DragSpring(isPresented: $open,
+                                 reach: widget.string("dragOpen", "near") == "over" ? 0 : widget.double("dragDistance", 60),
+                                 enabled: !state.contentHidden, popup: popup))
             .storagePopover(isPresented: $open, state: state, sized: false) {
                 FolderBrowser(folder: shelfFolder, options: item.folder, role: role, arrowEdge: state.popoverEdge,
                               save: { options in model.store.updateItem(item.id, in: dock.id) { $0.folder = options } },
                               onClose: { open = false })
+                    .background(WindowReader(box: popup))
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Shelf")
@@ -109,7 +100,7 @@ struct ShelfWidget: View {
         let removeAfterDrag = widget.string("afterDrag", "keep") == "remove"
         let empty = Copy.emptyShelf(model.playful)
         return FolderBrowserRole(
-            kind: .shelf, dropsMove: widget.string("dropAction", "copy") == "move",
+            kind: .shelf, dropsMove: widget.string("dropAction", "copy") == "move", pastesData: true,
             emptyTitle: empty.title, emptyHint: empty.detail, emptySymbol: "tray",
             onRootRead: { ShelfOps.sync($0, model: model) },
             onDraggedOut: { urls in
@@ -141,61 +132,71 @@ struct FileShelfWidget: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { open.toggle() }
-            .storagePopover(isPresented: $open, state: state) {
-                FileShelfPanel(item: item, dockID: dock.id, onClose: { open = false })
+            .storagePopover(isPresented: $open, state: state, sized: false) {
+                FolderBrowser(folder: FileShelfOps.listRoot(model), options: item.folder, role: role,
+                              arrowEdge: state.popoverEdge,
+                              save: { options in model.store.updateItem(item.id, in: dock.id) { $0.folder = options } },
+                              onClose: { open = false })
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Pinned Files")
             .accessibilityValue(count == 0 ? "Empty" : "\(count) files")
             .accessibilityAddTraits(.isButton)
     }
+
+    private var role: FolderBrowserRole {
+        let fields = WidgetFields(model: model, itemID: item.id, dockID: dock.id)
+        let empty = Copy.pinnedFiles(model.playful)
+        return FolderBrowserRole(
+            kind: .pinned,
+            listing: { fields.current.strings("refs").map { URL(fileURLWithPath: $0) } },
+            onList: { FileShelfOps.add($0, fields: fields) },
+            onUnlist: { FileShelfOps.remove($0, fields: fields) },
+            onRenamed: { old, new in
+                fields.set("refs", .array(fields.current.strings("refs").map { $0 == old.path ? new.path : $0 }.map(JSONValue.string)))
+            },
+            emptyTitle: empty.title, emptyHint: empty.detail, emptySymbol: "tray.2",
+            onDraggedOut: { urls in
+                let pinned = Set(fields.current.strings("refs"))
+                let out = urls.filter { pinned.contains($0.path) }
+                guard !out.isEmpty else { return }
+                switch fields.current.string("afterDrag", "keep") {
+                case "remove": FileShelfOps.remove(out, fields: fields)
+                case "ask":
+                    let what = out.count == 1 ? out[0].lastPathComponent : "these \(out.count) files"
+                    if StorageDialogs.confirm("Remove \(what) from Pinned Files?", message: "The files stay where they are.",
+                                              action: "Remove", destructive: false) {
+                        FileShelfOps.remove(out, fields: fields)
+                    }
+                default: break
+                }
+            },
+            clear: ("Clear All", {
+                if StorageDialogs.confirm("Remove all pinned files?", message: "Only the list is cleared. The files stay where they are.",
+                                          action: "Clear All") {
+                    fields.set("refs", .array([]))
+                }
+            }))
+    }
 }
 
 enum FileShelfOps {
+    /// Stands in for the list's folder in the browser; nothing is ever created there.
+    @MainActor
+    static func listRoot(_ model: AppModel) -> URL {
+        model.file.directory.appendingPathComponent("Pinned Files", isDirectory: true)
+    }
+
+    @MainActor
+    static func remove(_ urls: [URL], fields: WidgetFields) {
+        let gone = Set(urls.map(\.path))
+        fields.set("refs", .array(fields.current.strings("refs").filter { !gone.contains($0) }.map(JSONValue.string)))
+    }
+
     @MainActor
     static func add(_ urls: [URL], fields: WidgetFields) {
         var refs = fields.current.strings("refs")
         for url in urls where !refs.contains(url.path) { refs.append(url.path) }
         fields.set("refs", .array(refs.map(JSONValue.string)))
-    }
-}
-
-private struct FileShelfPanel: View {
-    @Environment(AppModel.self) private var model
-    let item: DockItem
-    let dockID: UUID
-    let onClose: () -> Void
-
-    private var fields: WidgetFields { WidgetFields(model: model, itemID: item.id, dockID: dockID) }
-
-    var body: some View {
-        FilePanel(
-            labels: .init(title: "Pinned Files", clearButton: "Clear All", clearTitle: "Remove all pinned files?",
-                          clearMessage: "Only the shelf's list is cleared. The files stay where they are.",
-                          removeItem: "Remove from Shelf", emptyTitle: Copy.pinnedFiles(model.playful).title,
-                          emptyHint: Copy.pinnedFiles(model.playful).detail,
-                          emptySymbol: "tray.2"),
-            entries: fields.current.strings("refs").map { FilePanelEntry(id: $0, url: URL(fileURLWithPath: $0)) },
-            searchable: true,
-            showsCopy: true,
-            onRemove: { remove($0.id) },
-            onClear: { fields.set("refs", .array([])) },
-            onAdd: { FileShelfOps.add($0, fields: fields) },
-            onDragEnd: { entry, inside in
-                guard !inside else { return }
-                switch fields.current.string("afterDrag", "keep") {
-                case "remove": remove(entry.id)
-                case "ask":
-                    if StorageDialogs.confirm("Remove \(entry.url.lastPathComponent) from the shelf?",
-                                              message: "The file itself stays where it is.", action: "Remove",
-                                              destructive: false) { remove(entry.id) }
-                default: break
-                }
-            },
-            onClose: onClose)
-    }
-
-    private func remove(_ path: String) {
-        fields.set("refs", .array(fields.current.strings("refs").filter { $0 != path }.map(JSONValue.string)))
     }
 }

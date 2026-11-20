@@ -204,6 +204,13 @@ struct StorageWidgetSettings: View {
             Text("Keep it on the shelf").tag("keep")
             Text("Remove it from the shelf").tag("remove")
         }
+        Picker("Opens while dragging files", selection: fields.string("dragOpen", "near")) {
+            Text("When they come near").tag("near")
+            Text("When they're right over it").tag("over")
+        }
+        if fields.current.string("dragOpen", "near") == "near" {
+            ValueSlider(title: "Distance", value: fields.double("dragDistance", 60), range: 10...300, format: "%.0f", unit: " pt")
+        }
         Toggle("Show how many files are on the shelf", isOn: fields.bool("showCount", false))
         ColorPicker("Icon color", selection: fields.color("iconColor", Tokens.text))
     }

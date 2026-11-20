@@ -160,20 +160,6 @@ struct WindowReader: NSViewRepresentable {
     }
 }
 
-/// SwiftUI reports no result for drags, so the end of one is the mouse button coming up.
-@MainActor
-enum DragWatcher {
-    static func onEnd(in box: WindowBox, _ completion: @escaping @MainActor (_ droppedInside: Bool) -> Void) {
-        Task { @MainActor in
-            // The drag session starts a beat after the gesture; give it time before looking at the button.
-            try? await Task.sleep(for: .milliseconds(250))
-            while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(100)) }
-            let inside = box.window?.frame.contains(NSEvent.mouseLocation) ?? false
-            completion(inside)
-        }
-    }
-}
-
 extension DockViewState {
     /// The side of a popover that faces the dock, where its arrow sits.
     var popoverEdge: Edge {
@@ -184,4 +170,84 @@ extension DockViewState {
         case .right: .leading
         }
     }
+}
+
+/// Opens a storage popover the moment a file drag comes within `reach` of the widget, so files can go
+/// straight into it. One opened that way closes again once the pointer leaves both the widget and the
+/// popover, dragging or not, unless it was clicked in.
+struct DragSpring: ViewModifier {
+    @Binding var isPresented: Bool
+    /// Points between the pointer and the widget; zero means right over it.
+    let reach: CGFloat
+    /// Off while the dock is hidden, since the widget can't be seen.
+    let enabled: Bool
+    /// The popover's window, read from inside it.
+    let popup: WindowBox
+    @State private var anchor = ViewBox()
+    @State private var token = UUID()
+    @State private var sprung = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(ViewReader(box: anchor))
+            .onAppear(perform: register)
+            .onDisappear { FileDragTracker.shared.stop(token) }
+            .onChange(of: reach) { register() }
+            .onChange(of: enabled) { register() }
+            .onChange(of: isPresented) { _, open in if !open { sprung = false } }
+    }
+
+    private func register() {
+        let reach = reach, enabled = enabled
+        FileDragTracker.shared.observe(token) { event in handle(event, reach: reach, enabled: enabled) }
+    }
+
+    private func handle(_ event: FileDragTracker.Event, reach: CGFloat, enabled: Bool) {
+        guard let widget = anchor.screenRect else { return }
+        let inPopup = { (p: CGPoint) in popup.window?.frame.insetBy(dx: -6, dy: -6).contains(p) ?? false }
+        let near = { (p: CGPoint) in Self.distance(from: p, to: widget) <= reach }
+        switch event {
+        case .dragged(let p):
+            if enabled, !isPresented, near(p) {
+                isPresented = true
+                sprung = true
+            } else if sprung, isPresented, !near(p), !inPopup(p) {
+                isPresented = false
+            }
+        case .ended(let p), .moved(let p):
+            if sprung, isPresented, !near(p), !inPopup(p) { isPresented = false }
+        case .pressed(let p):
+            // A click inside means it's being used; it then stays open like one opened by clicking.
+            if sprung, inPopup(p) { sprung = false }
+        }
+    }
+
+    private static func distance(from p: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - p.x, 0, p.x - rect.maxX)
+        let dy = max(rect.minY - p.y, 0, p.y - rect.maxY)
+        return (dx * dx + dy * dy).squareRoot()
+    }
+}
+
+@MainActor
+final class ViewBox {
+    weak var view: NSView?
+
+    /// The view's frame in screen coordinates, as `NSEvent.mouseLocation` reports points.
+    var screenRect: CGRect? {
+        guard let view, let window = view.window else { return nil }
+        return window.convertToScreen(view.convert(view.bounds, to: nil))
+    }
+}
+
+struct ViewReader: NSViewRepresentable {
+    let box: ViewBox
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        box.view = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { box.view = view }
 }

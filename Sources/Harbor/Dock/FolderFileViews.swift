@@ -642,6 +642,8 @@ final class FolderColumnsCoordinator: NSObject, NSBrowserDelegate {
 
     private func entry(for item: Any?) -> FolderEntry? {
         guard let url = item as? URL else { return nil }
+        // A pinned list's files live in different folders, so the first column is matched by URL.
+        if let shown = model.visible.first(where: { $0.url == url }) { return shown }
         return entries(in: url.deletingLastPathComponent(), depth: url.deletingLastPathComponent() == model.current ? 0 : 1)
             .first { $0.url == url }
     }

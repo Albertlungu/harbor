@@ -142,6 +142,40 @@ enum FileOperations {
         (NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
     }
 
+    /// An image or text on the clipboard with no file behind it, such as a screenshot copied with Control.
+    static var clipboardHasData: Bool {
+        NSPasteboard.general.canReadItem(withDataConformingToTypes: [NSPasteboard.PasteboardType.png.rawValue,
+                                                                    NSPasteboard.PasteboardType.tiff.rawValue,
+                                                                    NSPasteboard.PasteboardType.string.rawValue])
+    }
+
+    /// Saves a clipboard image as a PNG, or text as a plain text file, in the folder. Returns the new file.
+    @discardableResult
+    static func saveClipboard(into folder: URL) -> URL? {
+        let board = NSPasteboard.general
+        let data: Data
+        let name: String
+        if let png = board.data(forType: .png) {
+            (data, name) = (png, "Pasted Image.png")
+        } else if let tiff = board.data(forType: .tiff), let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) {
+            (data, name) = (png, "Pasted Image.png")
+        } else if let text = board.string(forType: .string), !text.isEmpty {
+            (data, name) = (Data(text.utf8), "Pasted Text.txt")
+        } else {
+            return nil
+        }
+        let target = folder.appendingPathComponent(FileNaming.copyName(for: name, existing: names(in: folder)))
+        do {
+            try data.write(to: target, options: .withoutOverwriting)
+        } catch {
+            report(error)
+            return nil
+        }
+        register("Paste") { trashQuietly([target]) }
+        return target
+    }
+
     /// Finder's own Get Info window, through its Show Info service so no Automation permission is needed.
     static func showInfo(_ urls: [URL]) {
         let board = NSPasteboard(name: NSPasteboard.Name("Harbor.ShowInfo"))

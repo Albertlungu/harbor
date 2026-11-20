@@ -6,10 +6,19 @@ import QuickLookUI
 
 /// How a browser differs when it shows a widget's own storage rather than a pinned folder.
 struct FolderBrowserRole {
-    enum Kind { case folder, shelf, trash }
+    enum Kind { case folder, shelf, trash, pinned }
     var kind = Kind.folder
     /// Drops from elsewhere move rather than copy; Command and Option still pick either.
     var dropsMove = false
+    /// Pasting an image or text with no file behind it saves it as a new file.
+    var pastesData = false
+    /// The root lists these files, wherever they live, instead of a folder's contents.
+    var listing: (@MainActor () -> [URL])? = nil
+    /// Files dropped or pasted onto a listed root, and files taken off it.
+    var onList: (@MainActor ([URL]) -> Void)? = nil
+    var onUnlist: (@MainActor ([URL]) -> Void)? = nil
+    /// A listed file was renamed, so the list can follow it.
+    var onRenamed: (@MainActor (URL, URL) -> Void)? = nil
     var emptyTitle = "Empty folder"
     var emptyHint: String? = nil
     var emptySymbol = "folder"
@@ -63,6 +72,8 @@ final class FolderBrowserModel {
     @ObservationIgnored weak var window: NSWindow?
 
     var current: URL { history.current }
+    /// Showing the role's list of files rather than a folder.
+    var atListedRoot: Bool { role.listing != nil && current == root }
 
     init(root: URL, options: FolderOptions, role: FolderBrowserRole = .folder, persist: @escaping (FolderOptions) -> Void,
          close: @escaping () -> Void) {
@@ -95,7 +106,7 @@ final class FolderBrowserModel {
 
     private func show(_ url: URL) {
         source?.cancel()
-        source = FolderWatcher.makeSource(url.path) { [weak self] in self?.reload() }
+        source = atListedRoot ? nil : FolderWatcher.makeSource(url.path) { [weak self] in self?.reload() }
         loaded = false
         reload()
     }
@@ -107,8 +118,10 @@ final class FolderBrowserModel {
         let folder = current
         let showHidden = options.showHidden
         let wantsLastOpened = options.sort == .dateLastOpened
+        let listed = atListedRoot ? role.listing?() : nil
         Task.detached(priority: .userInitiated) {
-            let read = Self.read(folder, showHidden: showHidden, lastOpened: wantsLastOpened)
+            let read = listed.map { Self.read(files: $0, lastOpened: wantsLastOpened) }
+                ?? Self.read(folder, showHidden: showHidden, lastOpened: wantsLastOpened)
             await MainActor.run { [weak self] in
                 guard let self, self.generation == token else { return }
                 self.denied = read == nil
@@ -136,16 +149,27 @@ final class FolderBrowserModel {
     private nonisolated static func read(_ folder: URL, showHidden: Bool, lastOpened: Bool) -> [FolderEntry]? {
         guard let urls = try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: keys, options: showHidden ? [] : [.skipsHiddenFiles]) else { return nil }
-        return urls.map { url in
-            let v = try? url.resourceValues(forKeys: Set(keys))
-            let isFolder = v?.isDirectory == true && v?.isPackage != true
-            return FolderEntry(
-                url: url, name: v?.localizedName ?? url.lastPathComponent, isFolder: isFolder,
-                size: isFolder ? nil : v?.fileSize.map(Int64.init), kind: v?.localizedTypeDescription ?? "",
-                modified: v?.contentModificationDate, created: v?.creationDate, added: v?.addedToDirectoryDate,
-                // Finder's "Date Last Opened" is Spotlight's last-used date; only read when sorting by it.
-                lastOpened: lastOpened ? lastUsed(url) : nil)
+        return urls.map { entry($0, lastOpened: lastOpened) }
+    }
+
+    /// A listed root's files; ones that have gone missing stay listed, marked as missing.
+    private nonisolated static func read(files: [URL], lastOpened: Bool) -> [FolderEntry] {
+        files.map { url in
+            var entry = entry(url, lastOpened: lastOpened)
+            if !FileManager.default.fileExists(atPath: url.path) { entry.kind = "Missing file" }
+            return entry
         }
+    }
+
+    private nonisolated static func entry(_ url: URL, lastOpened: Bool) -> FolderEntry {
+        let v = try? url.resourceValues(forKeys: Set(keys))
+        let isFolder = v?.isDirectory == true && v?.isPackage != true
+        return FolderEntry(
+            url: url, name: v?.localizedName ?? url.lastPathComponent, isFolder: isFolder,
+            size: isFolder ? nil : v?.fileSize.map(Int64.init), kind: v?.localizedTypeDescription ?? "",
+            modified: v?.contentModificationDate, created: v?.creationDate, added: v?.addedToDirectoryDate,
+            // Finder's "Date Last Opened" is Spotlight's last-used date; only read when sorting by it.
+            lastOpened: lastOpened ? lastUsed(url) : nil)
     }
 
     private nonisolated static func lastUsed(_ url: URL) -> Date? {
@@ -209,7 +233,9 @@ final class FolderBrowserModel {
 
     func goUp() {
         guard canGoUp else { return }
-        let parent = current.deletingLastPathComponent()
+        // A listed folder's enclosing folder is the list it was opened from.
+        let listed = role.listing?().map(\.standardizedFileURL) ?? []
+        let parent = listed.contains(current.standardizedFileURL) ? root : current.deletingLastPathComponent()
         guard parent.path != current.path else { return }
         let from = current
         history.visit(parent)
@@ -273,13 +299,25 @@ final class FolderBrowserModel {
 
     func commitRename(_ url: URL, to name: String) {
         renaming = nil
-        if let renamed = FileOperations.rename(url, to: name) { selectAfterLoad = [renamed] }
+        guard let renamed = FileOperations.rename(url, to: name) else { return }
+        selectAfterLoad = [renamed]
+        if atListedRoot {
+            role.onRenamed?(url, renamed)
+            reload()
+        }
     }
 
     func trashSelection() {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
-        if role.kind == .trash { deleteImmediately(urls) } else { FileOperations.trash(urls) }
+        if atListedRoot {
+            role.onUnlist?(urls)
+            reload()
+        } else if role.kind == .trash {
+            deleteImmediately(urls)
+        } else {
+            FileOperations.trash(urls)
+        }
     }
 
     /// Finder's Delete Immediately for items already in the Trash; asks first, since there is no undo.
@@ -290,12 +328,13 @@ final class FolderBrowserModel {
     }
 
     func duplicateSelection() {
+        guard !atListedRoot else { return }
         let made = FileOperations.duplicate(selectedURLs)
         if !made.isEmpty { selectAfterLoad = made }
     }
 
     func newFolder() {
-        guard let made = FileOperations.newFolder(in: current) else { return }
+        guard !atListedRoot, let made = FileOperations.newFolder(in: current) else { return }
         selectAfterLoad = [made]
         renaming = made
     }
@@ -309,7 +348,15 @@ final class FolderBrowserModel {
 
     func paste() {
         let files = FileOperations.pasteboardFiles()
-        guard !files.isEmpty else { return }
+        if files.isEmpty {
+            guard role.pastesData, !atListedRoot, let made = FileOperations.saveClipboard(into: current) else { return }
+            selectAfterLoad = [made]
+            return
+        }
+        if atListedRoot {
+            list(files)
+            return
+        }
         if role.kind == .trash {
             FileOperations.trash(files)
             return
@@ -319,18 +366,27 @@ final class FolderBrowserModel {
     }
 
     func showInfo() {
+        guard !(atListedRoot && selection.isEmpty) else { return }
         let urls = selection.isEmpty ? [current] : selectedURLs
         FileOperations.showInfo(urls)
     }
 
     func revealInFinder() {
-        NSWorkspace.shared.activateFileViewerSelecting(selection.isEmpty ? [current] : selectedURLs)
+        NSWorkspace.shared.activateFileViewerSelecting(selection.isEmpty ? (atListedRoot ? visible.map(\.url) : [current])
+                                                                         : selectedURLs)
         close()
     }
 
+    /// A listed root has no folder of its own, so Finder shows its files where they live.
     func openCurrentInFinder() {
-        NSWorkspace.shared.open(current)
+        if atListedRoot { NSWorkspace.shared.activateFileViewerSelecting(visible.map(\.url)) } else { NSWorkspace.shared.open(current) }
         close()
+    }
+
+    private func list(_ urls: [URL]) {
+        role.onList?(urls)
+        selectAfterLoad = urls
+        reload()
     }
 
     func undo() { if FileOperations.undoManager.canUndo { FileOperations.undoManager.undo() } }
@@ -354,6 +410,11 @@ final class FolderBrowserModel {
                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         let target = folder ?? current
         guard !urls.isEmpty, !urls.contains(target) else { return false }
+        if folder == nil, atListedRoot {
+            guard !fromSelf else { return false }
+            list(urls)
+            return true
+        }
         // Dropping on the Trash trashes, the way Finder's Trash does, so undo puts files back.
         if role.kind == .trash, !fromSelf {
             FileOperations.trash(urls)
@@ -366,7 +427,7 @@ final class FolderBrowserModel {
 
     /// Files land in the shown folder from a drop on its empty view, with the same rules as any other drop.
     func acceptDropped(_ urls: [URL]) {
-        if role.kind == .trash { FileOperations.trash(urls) } else { FileOperations.transfer(urls, into: current, move: role.dropsMove) }
+        if atListedRoot { list(urls) } else if role.kind == .trash { FileOperations.trash(urls) } else { FileOperations.transfer(urls, into: current, move: role.dropsMove) }
     }
 
     func draggedOut(_ urls: [URL] = [], at point: NSPoint? = nil) {
@@ -463,9 +524,9 @@ final class FolderBrowserModel {
                 menu.addItem(action(clear.title) { clear.run() })
                 menu.addItem(.separator())
             }
-            if role.kind != .trash { menu.addItem(action("New Folder") { [weak self] in self?.newFolder() }) }
+            if role.kind != .trash, !atListedRoot { menu.addItem(action("New Folder") { [weak self] in self?.newFolder() }) }
             menu.addItem(action("Get Info") { [weak self] in self?.showInfo() })
-            if role.kind != .trash, !FileOperations.pasteboardFiles().isEmpty {
+            if role.kind != .trash, !FileOperations.pasteboardFiles().isEmpty || (role.pastesData && FileOperations.clipboardHasData) {
                 menu.addItem(action("Paste") { [weak self] in self?.paste() })
             }
             menu.addItem(.separator())
@@ -484,7 +545,9 @@ final class FolderBrowserModel {
             menu.addItem(openWithMenu(url))
         }
         menu.addItem(.separator())
-        menu.addItem(action(role.kind == .trash ? "Delete Immediately…" : "Move to Trash") { [weak self] in self?.trashSelection() })
+        let removal = atListedRoot ? "Remove from \(FileManager.default.displayName(atPath: root.path))"
+            : (role.kind == .trash ? "Delete Immediately…" : "Move to Trash")
+        menu.addItem(action(removal) { [weak self] in self?.trashSelection() })
         menu.addItem(.separator())
         menu.addItem(action("Get Info") { [weak self] in self?.showInfo() })
         if urls.count == 1 { menu.addItem(action("Rename") { [weak self] in self?.beginRename() }) }
@@ -492,7 +555,7 @@ final class FolderBrowserModel {
             menu.addItem(action(urls.count == 1 ? "Compress \"\(urls[0].lastPathComponent)\"" : "Compress \(urls.count) Items") {
                 [weak self] in self?.compressSelection()
             })
-            menu.addItem(action("Duplicate") { [weak self] in self?.duplicateSelection() })
+            if !atListedRoot { menu.addItem(action("Duplicate") { [weak self] in self?.duplicateSelection() }) }
         }
         menu.addItem(action("Quick Look") { [weak self] in self?.quickLook() })
         menu.addItem(.separator())
