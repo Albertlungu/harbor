@@ -22,8 +22,8 @@ struct TimerWidget: View {
         let unit = Tokens.Tool.unit(size)
         let look = Appearance.shared
         let accent = look.dockAccent(for: .timer)
-        // Paused while idle so a stopped timer costs no redraws.
-        TimelineView(.animation(minimumInterval: 0.25, paused: end == nil)) { context in
+        // Still while idle, once it has run out and while the dock is hidden, so it costs no redraws then.
+        TimelineView(CountdownSchedule(end: end, active: !state.contentHidden)) { context in
             let remaining = end.map { TimerLogic.remaining(end: $0, now: context.date) } ?? total
             let progress = end.map { TimerLogic.progress(end: $0, now: context.date, total: total) } ?? 1
             let finished = end != nil && remaining == 0
@@ -107,6 +107,17 @@ struct TimerWidget: View {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
             overlayVisible = false
+        }
+    }
+
+    /// Quarter-second ticks up to the end date, which is the last entry, so the finished face is drawn once.
+    private struct CountdownSchedule: TimelineSchedule {
+        let end: Date?
+        let active: Bool
+
+        func entries(from start: Date, mode: TimelineScheduleMode) -> AnySequence<Date> {
+            guard active, let end, end > start else { return AnySequence([start]) }
+            return AnySequence(sequence(first: start) { $0 < end ? min($0 + 0.25, end) : nil })
         }
     }
 

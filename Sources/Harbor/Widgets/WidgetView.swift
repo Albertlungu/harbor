@@ -13,7 +13,7 @@ struct WidgetView: View {
     var body: some View {
         switch widget.kind {
         case .clock?:
-            ClockWidget(widget: widget, size: size)
+            ClockWidget(widget: widget, size: size, state: state)
         case .spacer?:
             Color.clear.accessibilityHidden(true)
         case .divider?:

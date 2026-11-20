@@ -37,6 +37,8 @@ final class DockViewState {
     }
 
     var isHorizontal: Bool { hugEdge == .bottom || hugEdge == .top }
+    /// Slid or faded out of sight; widgets that tick stop redrawing the panel while this holds.
+    var contentHidden: Bool { hideOffset != .zero || contentOpacity == 0 }
 }
 
 /// Owns one dock panel on one screen and keeps it placed.

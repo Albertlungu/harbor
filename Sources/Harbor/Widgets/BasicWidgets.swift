@@ -5,10 +5,12 @@ import SwiftUI
 struct ClockWidget: View {
     let widget: WidgetConfig
     let size: CGSize
+    let state: DockViewState
 
     var body: some View {
         let seconds = widget.bool("showSeconds", false)
-        TimelineView(.periodic(from: .now, by: seconds ? 1 : 15)) { context in
+        // Every tick lays out the whole dock panel, so a hidden dock's clock stops until it is shown.
+        TimelineView(.animation(minimumInterval: seconds ? 1 : 15, paused: state.contentHidden)) { context in
             VStack(spacing: 0) {
                 Text(timeString(context.date))
                     .font(font(size: size.height * (widget.bool("showDate", false) ? 0.32 : 0.4)))

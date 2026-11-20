@@ -34,9 +34,15 @@ struct MonitorWidget: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(reading.label)
         .accessibilityValue(reading.value.map { "\(Int($0.rounded())) percent" } ?? reading.unavailableText)
-        .onAppear { sampler.register(token, rate: rate) }
+        .onAppear { follow() }
         .onDisappear { sampler.unregister(token) }
-        .onChange(of: rate) { sampler.register(token, rate: rate) }
+        .onChange(of: rate) { follow() }
+        // Each reading animates the ring and lays out the whole dock panel, so a hidden dock stops sampling.
+        .onChange(of: state.contentHidden) { follow() }
+    }
+
+    private func follow() {
+        if state.contentHidden { sampler.unregister(token) } else { sampler.register(token, rate: rate) }
     }
 
     private func gauge(_ reading: Reading, diameter: CGFloat) -> some View {
