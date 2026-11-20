@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.0
+
+### Shelf, Pinned Files and Trash
+
+- The Shelf, Pinned Files and Trash open in the same Finder-style browser as folders, with Icons, List,
+  Columns and Gallery views, sorting, search, Quick Look and Finder's shortcuts.
+- The Shelf opens the moment a dragged file comes near it, or only when it's right over it; the distance is
+  set in its settings. A shelf opened that way closes once the pointer moves away, unless you click in it.
+- Command-V pastes files onto the Shelf, and a copied screenshot or text is saved there as a file.
+- Clear All on the Shelf no longer asks first.
+- Dropping files on the Trash browser moves them to the Trash, items in it can be deleted immediately, and
+  Command-click on Empty Trash skips the confirmation.
+- Pinned Files can be added by dropping or pasting, removed without touching the files, and stay pinned when
+  renamed.
+
+### Performance
+
+- The clock, timer and system gauges stop redrawing while their dock is hidden, and a finished timer stops
+  ticking, which cuts Harbor's idle CPU use to under 1%.
+- Switching apps, including leaving Mission Control, no longer stalls Harbor while it reads the running apps.
+- With Replace the macOS Dock on, the guard that keeps the Dock from sliding up no longer makes pointer
+  movement wait on Harbor.
+
 ## 1.0.0
 
 The first public release.
