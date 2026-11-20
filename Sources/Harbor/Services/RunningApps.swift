@@ -8,9 +8,20 @@ struct RunningApp: Identifiable, Equatable {
     let name: String
     var isActive: Bool
     var isHidden: Bool
+    /// Standardized once when the list is read: standardizing touches the disk, and docks look apps
+    /// up by path for every icon they draw.
+    let path: String?
     var id: pid_t { pid }
 
-    var path: String? { bundleURL?.standardizedFileURL.path }
+    init(pid: pid_t, bundleURL: URL?, bundleID: String?, name: String, isActive: Bool, isHidden: Bool) {
+        self.pid = pid
+        self.bundleURL = bundleURL
+        self.bundleID = bundleID
+        self.name = name
+        self.isActive = isActive
+        self.isHidden = isHidden
+        path = bundleURL?.standardizedFileURL.path
+    }
 }
 
 /// Tracks regular (Dock-visible) running applications.
@@ -22,9 +33,15 @@ final class RunningApps {
     private(set) var launchingPaths: Set<String> = []
 
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// Whether each process is Dock-visible. Right after an app switch every `NSRunningApplication`
+    /// property read is a synchronous call to LaunchServices, so the list is read off the main thread
+    /// and `activationPolicy` is only asked again for an app that launches or comes forward.
+    @ObservationIgnored private var regular: [pid_t: Bool] = [:]
+    /// Drops a read that a newer one has overtaken.
+    @ObservationIgnored private var generation = 0
 
     init() {
-        refresh()
+        apply(Self.read(cached: [:], recheck: nil))
         let center = NSWorkspace.shared.notificationCenter
         let names: [Notification.Name] = [
             NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
@@ -32,20 +49,52 @@ final class RunningApps {
             NSWorkspace.didUnhideApplicationNotification,
         ]
         for name in names {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let changed = name == NSWorkspace.didLaunchApplicationNotification
+                    || name == NSWorkspace.didActivateApplicationNotification
+                let app = changed ? note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication : nil
+                MainActor.assumeIsolated { self?.refresh(recheck: app) }
             })
         }
     }
 
-    func refresh() {
-        apps = NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && !$0.isTerminated }
-            .map {
-                RunningApp(pid: $0.processIdentifier, bundleURL: $0.bundleURL, bundleID: $0.bundleIdentifier,
-                           name: $0.localizedName ?? "App", isActive: $0.isActive, isHidden: $0.isHidden)
-            }
-        launchingPaths = launchingPaths.filter { app(atPath: $0) == nil }
+    func refresh(recheck: NSRunningApplication? = nil) {
+        generation += 1
+        let current = generation
+        let cached = regular
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.read(cached: cached, recheck: recheck)
+            }.value
+            guard let self, current == self.generation else { return }
+            self.apply(result)
+        }
+    }
+
+    private func apply(_ result: (regular: [pid_t: Bool], apps: [RunningApp])) {
+        regular = result.regular
+        // Every dock rebuilds when this changes, so an identical list is not written back.
+        if result.apps != apps { apps = result.apps }
+        let launching = launchingPaths.filter { app(atPath: $0) == nil }
+        if launching != launchingPaths { launchingPaths = launching }
+    }
+
+    /// `isTerminated` is skipped: it is another LaunchServices round trip per app, the list already
+    /// drops apps that quit, and their terminate notification reads it again.
+    private nonisolated static func read(cached: [pid_t: Bool], recheck: NSRunningApplication?)
+        -> (regular: [pid_t: Bool], apps: [RunningApp]) {
+        let skip = recheck?.processIdentifier
+        var known: [pid_t: Bool] = [:]
+        var apps: [RunningApp] = []
+        for app in NSWorkspace.shared.runningApplications {
+            let pid = app.processIdentifier
+            let isRegular = (pid == skip ? nil : cached[pid]) ?? (app.activationPolicy == .regular)
+            known[pid] = isRegular
+            guard isRegular else { continue }
+            apps.append(RunningApp(pid: pid, bundleURL: app.bundleURL, bundleID: app.bundleIdentifier,
+                                   name: app.localizedName ?? "App", isActive: app.isActive, isHidden: app.isHidden))
+        }
+        return (known, apps)
     }
 
     func app(atPath path: String) -> RunningApp? {
